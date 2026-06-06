@@ -38,6 +38,7 @@ scripts/package-appimage.sh
 ```
 
 The AppImage is written to `dist/`. Generated AppImages are not committed to Git.
+Each package run removes old AppImage files from `dist/` and writes `dist/droneAction.appimage`.
 
 ## GitHub Actions
 

@@ -4,6 +4,7 @@ dist/
 AppDir/
 .appimage-tools/
 *.AppImage
+*.appimage
 *.user
 *.swp
 .DS_Store

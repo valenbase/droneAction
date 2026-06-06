@@ -25,4 +25,7 @@ GitHub Actions stores AppImage files in two places:
 - Workflow artifacts for normal pushes and pull requests.
 - GitHub Releases for tags matching `v*`.
 
-Do not commit generated `.AppImage` files.
+The generated file is always named `dist/droneAction.appimage`; each package run removes older AppImage files
+from `dist/` before creating the new one.
+
+Do not commit generated `.AppImage` or `.appimage` files.

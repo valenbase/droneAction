@@ -5,10 +5,10 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-$PROJECT_ROOT/build}"
 DIST_DIR="${DIST_DIR:-$PROJECT_ROOT/dist}"
 APPDIR="${APPDIR:-$PROJECT_ROOT/AppDir}"
-VERSION="${VERSION:-$(git -C "$PROJECT_ROOT" describe --tags --always --dirty 2>/dev/null || echo 0.1.0)}"
-APPIMAGE_NAME="DroneAction-${VERSION}-x86_64.AppImage"
+APPIMAGE_NAME="${APPIMAGE_NAME:-droneAction.appimage}"
 
 mkdir -p "$DIST_DIR"
+find "$DIST_DIR" -maxdepth 1 -type f \( -name "*.AppImage" -o -name "*.appimage" \) -delete
 rm -rf "$APPDIR"
 
 cmake --install "$BUILD_DIR" --prefix "$APPDIR/usr"

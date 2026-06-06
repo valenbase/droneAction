@@ -68,7 +68,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: droneaction-appimage
-          path: dist/*.AppImage
+          path: dist/droneAction.appimage
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -79,4 +79,4 @@ jobs:
         run: |
           gh release view "$TAG_NAME" >/dev/null 2>&1 || \
             gh release create "$TAG_NAME" --title "$TAG_NAME" --notes "Automated DroneAction AppImage release."
-          gh release upload "$TAG_NAME" dist/*.AppImage --clobber
+          gh release upload "$TAG_NAME" dist/droneAction.appimage --clobber
