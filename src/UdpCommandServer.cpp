@@ -73,7 +73,14 @@ void UdpCommandServer::readPendingDatagrams()
 
         const SafetyDecision decision = m_safetyGate->evaluate(parse.command, m_telemetryService->snapshot());
         emit commandObserved(sender, parse.command, decision);
-        sendAck(senderAddress, datagram.senderPort(), decision.toAck());
+        QJsonObject ack = decision.toAck();
+        if (decision.accepted()) {
+            const CommandExecutionResult execution = m_telemetryService->executeCommand(decision.command);
+            ack.insert(QStringLiteral("execution_status"), execution.status);
+            ack.insert(QStringLiteral("execution_reason"), execution.reason);
+            emit statusChanged(QStringLiteral("Command execution %1: %2").arg(execution.status, execution.reason));
+        }
+        sendAck(senderAddress, datagram.senderPort(), ack);
     }
 }
 

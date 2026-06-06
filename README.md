@@ -13,6 +13,7 @@ The first milestone provides:
   - RTSP video: `rtsp://192.168.144.108:554/stream=0`
 - RK3588 UDP JSON command intake on `0.0.0.0:50050`.
 - PX4 SITL defaults use MAVLink `udp://:14540` and disable RTSP video.
+- MAVSDK command execution is enabled by default for PX4 SITL and disabled by default for real-aircraft mode.
 - A safety gate for movement/high-risk commands.
 - GitHub Actions packaging for `x86_64` AppImage releases.
 

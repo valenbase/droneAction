@@ -21,6 +21,7 @@ struct AppConfig {
     double maxYawDegS = 45.0;
     int maxCommandDurationMs = 3000;
     bool requireHighRiskConfirmation = true;
+    bool mavlinkCommandExecutionEnabled = false;
 
     static QString configPath();
 

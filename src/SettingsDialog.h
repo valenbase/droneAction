@@ -32,4 +32,5 @@ private:
     QDoubleSpinBox *m_maxYaw = nullptr;
     QSpinBox *m_maxDuration = nullptr;
     QCheckBox *m_requireHighRiskConfirmation = nullptr;
+    QCheckBox *m_mavlinkCommandExecution = nullptr;
 };

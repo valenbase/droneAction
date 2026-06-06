@@ -45,7 +45,9 @@ python3 tools/rk3588_command_cli.py --json --once '{"version":1,"request_id":"rk
   "command": "forward",
   "accepted": true,
   "status": "accepted",
-  "reason": "command passed safety gate"
+  "reason": "command passed safety gate",
+  "execution_status": "queued",
+  "execution_reason": "command queued for MAVSDK execution"
 }
 ```
 
@@ -54,6 +56,16 @@ python3 tools/rk3588_command_cli.py --json --once '{"version":1,"request_id":"rk
 - `accepted`
 - `rejected`
 - `needs_confirmation`
+
+`execution_status` appears only after the command passes the safety gate. Common values:
+
+- `queued`: command was queued for MAVSDK execution.
+- `disabled`: MAVLink execution is disabled in the selected runtime mode.
+- `unavailable`: the application was built without MAVSDK.
+- `not_ready`: MAVSDK is enabled but no autopilot is connected yet.
+
+PX4 SITL mode enables MAVLink command execution by default and uses `udp://:14540`.
+Real-aircraft mode disables MAVLink command execution by default; it must be enabled explicitly in Settings.
 
 ## Supported Commands
 
@@ -80,4 +92,5 @@ python3 tools/rk3588_command_cli.py --json --once '{"version":1,"request_id":"rk
 - Movement/high-risk commands require live telemetry.
 - Movement values are capped by local config.
 - Movement durations are capped by local config.
-- `takeoff`, `land`, and `rtl` return `needs_confirmation` by default.
+- `takeoff`, `land`, and `rtl` return `needs_confirmation` by default in real-aircraft mode.
+- PX4 SITL mode disables high-risk confirmation by default to support local simulator testing.

@@ -109,7 +109,8 @@ QJsonObject AppConfig::toJson() const
         {QStringLiteral("max_vertical_mps"), maxVerticalMps},
         {QStringLiteral("max_yaw_deg_s"), maxYawDegS},
         {QStringLiteral("max_command_duration_ms"), maxCommandDurationMs},
-        {QStringLiteral("require_high_risk_confirmation"), requireHighRiskConfirmation}
+        {QStringLiteral("require_high_risk_confirmation"), requireHighRiskConfirmation},
+        {QStringLiteral("mavlink_command_execution_enabled"), mavlinkCommandExecutionEnabled}
     };
 }
 
@@ -148,6 +149,8 @@ AppConfig AppConfig::fromJson(const QJsonObject &object)
     config.maxCommandDurationMs = intValue(object, "max_command_duration_ms", config.maxCommandDurationMs);
     config.requireHighRiskConfirmation = boolValue(object, "require_high_risk_confirmation",
                                                    config.requireHighRiskConfirmation);
+    config.mavlinkCommandExecutionEnabled = boolValue(object, "mavlink_command_execution_enabled",
+                                                      config.mavlinkCommandExecutionEnabled);
     return config;
 }
 
@@ -193,6 +196,8 @@ void AppConfig::applyRunModeDefaults(AppRunMode mode)
         videoUrl.clear();
         udpBindAddress = QStringLiteral("0.0.0.0");
         udpBindPort = 50050;
+        requireHighRiskConfirmation = false;
+        mavlinkCommandExecutionEnabled = true;
         return;
     }
 
@@ -200,4 +205,6 @@ void AppConfig::applyRunModeDefaults(AppRunMode mode)
     videoUrl = QStringLiteral("rtsp://192.168.144.108:554/stream=0");
     udpBindAddress = QStringLiteral("0.0.0.0");
     udpBindPort = 50050;
+    requireHighRiskConfirmation = true;
+    mavlinkCommandExecutionEnabled = false;
 }

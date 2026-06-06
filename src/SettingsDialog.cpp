@@ -63,11 +63,14 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
     m_maxDuration->setValue(config.maxCommandDurationMs);
     m_requireHighRiskConfirmation = new QCheckBox(QStringLiteral("Require confirmation"), safety);
     m_requireHighRiskConfirmation->setChecked(config.requireHighRiskConfirmation);
+    m_mavlinkCommandExecution = new QCheckBox(QStringLiteral("Enable MAVLink command execution"), safety);
+    m_mavlinkCommandExecution->setChecked(config.mavlinkCommandExecutionEnabled);
     safetyForm->addRow(QStringLiteral("Max velocity m/s"), m_maxVelocity);
     safetyForm->addRow(QStringLiteral("Max vertical m/s"), m_maxVertical);
     safetyForm->addRow(QStringLiteral("Max yaw deg/s"), m_maxYaw);
     safetyForm->addRow(QStringLiteral("Max duration ms"), m_maxDuration);
     safetyForm->addRow(QStringLiteral("High-risk actions"), m_requireHighRiskConfirmation);
+    safetyForm->addRow(QStringLiteral("MAVLink execution"), m_mavlinkCommandExecution);
     layout->addWidget(safety);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
@@ -138,5 +141,6 @@ bool SettingsDialog::applyToConfig(AppConfig *config, QString *errorMessage) con
     config->maxYawDegS = m_maxYaw->value();
     config->maxCommandDurationMs = m_maxDuration->value();
     config->requireHighRiskConfirmation = m_requireHighRiskConfirmation->isChecked();
+    config->mavlinkCommandExecutionEnabled = m_mavlinkCommandExecution->isChecked();
     return true;
 }
