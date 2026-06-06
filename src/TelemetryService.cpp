@@ -16,6 +16,8 @@ void TelemetryService::connectToEndpoint(const QString &mavlinkUrl)
     m_snapshot.connected = true;
     m_snapshot.armed = false;
     m_snapshot.mode = QStringLiteral("SIMULATED G12 LINK");
+    m_snapshot.latitudeDeg = 29.56301;
+    m_snapshot.longitudeDeg = 106.55156;
     m_snapshot.batteryPercent = 96.0;
     m_snapshot.gpsSatellites = 14;
     m_timer.start();
@@ -52,6 +54,8 @@ void TelemetryService::updateSimulation()
     m_snapshot.rollDeg = 16.0 * qSin(t * 0.8);
     m_snapshot.pitchDeg = 7.5 * qSin(t * 1.1);
     m_snapshot.headingDeg = std::fmod(m_snapshot.headingDeg + 2.0, 360.0);
+    m_snapshot.latitudeDeg = 29.56301 + 0.0012 * qSin(t / 3.0);
+    m_snapshot.longitudeDeg = 106.55156 + 0.0012 * qCos(t / 3.0);
     m_snapshot.batteryPercent = qMax(15.0, m_snapshot.batteryPercent - 0.02);
     emit snapshotChanged(m_snapshot);
 }

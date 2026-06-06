@@ -2,6 +2,7 @@
 
 #include "AppConfig.h"
 #include "InstrumentWidgets.h"
+#include "MapWidget.h"
 #include "SafetyGate.h"
 #include "TelemetryService.h"
 #include "UdpCommandServer.h"
@@ -51,6 +52,7 @@ private:
     CompassWidget *m_heading = nullptr;
     CircularGaugeWidget *m_battery = nullptr;
     CircularGaugeWidget *m_gps = nullptr;
+    MapWidget *m_map = nullptr;
     QLabel *m_mode = nullptr;
     QPlainTextEdit *m_eventLog = nullptr;
     QPlainTextEdit *m_commandLog = nullptr;

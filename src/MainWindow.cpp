@@ -109,6 +109,9 @@ MainWindow::MainWindow(QWidget *parent)
     auto *rightLayout = new QVBoxLayout(right);
     rightLayout->setContentsMargins(12, 0, 0, 0);
 
+    m_map = new MapWidget(right);
+    rightLayout->addWidget(m_map, 3);
+
     auto *statusBox = new QGroupBox(QStringLiteral("Status"));
     setCardStyle(statusBox);
     auto *statusLayout = new QFormLayout(statusBox);
@@ -204,6 +207,10 @@ void MainWindow::updateTelemetry(const TelemetrySnapshot &snapshot)
     m_heading->setHeading(snapshot.headingDeg);
     m_battery->setValue(snapshot.batteryPercent);
     m_gps->setValue(snapshot.gpsSatellites);
+    m_map->setDronePosition(snapshot.latitudeDeg,
+                            snapshot.longitudeDeg,
+                            snapshot.headingDeg,
+                            snapshot.connected && snapshot.gpsSatellites > 0);
 }
 
 void MainWindow::appendStatus(const QString &message)
