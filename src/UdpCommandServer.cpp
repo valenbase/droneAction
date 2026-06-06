@@ -23,9 +23,7 @@ bool UdpCommandServer::start(const AppConfig &config, QString *errorMessage)
         return false;
     }
 
-    emit statusChanged(QStringLiteral("RK3588 UDP server listening on %1:%2")
-                           .arg(config.udpBindAddress)
-                           .arg(config.udpBindPort));
+    emit statusChanged(QStringLiteral("RK3588 UDP server listening"));
     return true;
 }
 

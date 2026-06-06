@@ -21,7 +21,7 @@ void TelemetryService::connectToEndpoint(const QString &mavlinkUrl)
     m_snapshot.batteryPercent = 96.0;
     m_snapshot.gpsSatellites = 14;
     m_timer.start();
-    emit statusMessageChanged(QStringLiteral("Telemetry endpoint configured: %1").arg(mavlinkUrl));
+    emit statusMessageChanged(QStringLiteral("Telemetry endpoint configured"));
     emit snapshotChanged(m_snapshot);
 }
 

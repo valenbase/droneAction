@@ -4,16 +4,18 @@
 #include "InstrumentWidgets.h"
 #include "MapWidget.h"
 #include "SafetyGate.h"
+#include "SettingsDialog.h"
 #include "TelemetryService.h"
 #include "UdpCommandServer.h"
 #include "VideoService.h"
 
 #include <QLabel>
-#include <QLineEdit>
 #include <QMainWindow>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QCheckBox>
+#include <QIcon>
+#include <QToolButton>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -28,10 +30,11 @@ private slots:
     void appendStatus(const QString &message);
     void appendCommand(const QString &sender, const DroneCommand &command, const SafetyDecision &decision);
     void updateSafetyAuthorization(bool enabled);
+    void openSettings();
 
 private:
     void loadConfig();
-    AppConfig configFromUi() const;
+    QIcon createSettingsIcon() const;
 
     AppConfig m_config;
     SafetyGate m_safetyGate;
@@ -39,9 +42,7 @@ private:
     VideoService m_video;
     UdpCommandServer m_udpServer;
 
-    QLineEdit *m_mavlinkUrl = nullptr;
-    QLineEdit *m_videoUrl = nullptr;
-    QLineEdit *m_udpBind = nullptr;
+    QToolButton *m_settingsButton = nullptr;
     QCheckBox *m_authorizeControl = nullptr;
     QLabel *m_linkStatus = nullptr;
     QLabel *m_videoStatus = nullptr;

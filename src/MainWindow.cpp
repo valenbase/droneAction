@@ -2,13 +2,14 @@
 
 #include <QDateTime>
 #include <QFormLayout>
-#include <QFrame>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
-#include <QJsonDocument>
+#include <QIcon>
 #include <QLabel>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPixmap>
 #include <QSplitter>
 #include <QVBoxLayout>
 
@@ -48,20 +49,18 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *start = new QPushButton(QStringLiteral("Start"));
     auto *stop = new QPushButton(QStringLiteral("Stop"));
+    m_settingsButton = new QToolButton(root);
+    m_settingsButton->setIcon(createSettingsIcon());
+    m_settingsButton->setIconSize(QSize(22, 22));
+    m_settingsButton->setToolTip(QStringLiteral("Settings"));
+    m_settingsButton->setFixedSize(38, 38);
+    m_settingsButton->setStyleSheet(QStringLiteral(
+        "QToolButton { background: #122232; border: 1px solid #30475d; border-radius: 6px; }"
+        "QToolButton:hover { background: #1a3348; }"));
+    header->addWidget(m_settingsButton);
     header->addWidget(start);
     header->addWidget(stop);
     rootLayout->addLayout(header);
-
-    auto *settings = new QGroupBox(QStringLiteral("Connection"));
-    setCardStyle(settings);
-    auto *form = new QFormLayout(settings);
-    m_mavlinkUrl = new QLineEdit(settings);
-    m_videoUrl = new QLineEdit(settings);
-    m_udpBind = new QLineEdit(settings);
-    form->addRow(QStringLiteral("MAVLink"), m_mavlinkUrl);
-    form->addRow(QStringLiteral("RTSP"), m_videoUrl);
-    form->addRow(QStringLiteral("RK3588 UDP"), m_udpBind);
-    rootLayout->addWidget(settings);
 
     auto *splitter = new QSplitter(Qt::Horizontal, root);
     auto *left = new QWidget(splitter);
@@ -160,6 +159,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(start, &QPushButton::clicked, this, &MainWindow::startSystems);
     connect(stop, &QPushButton::clicked, this, &MainWindow::stopSystems);
+    connect(m_settingsButton, &QToolButton::clicked, this, &MainWindow::openSettings);
     connect(m_authorizeControl, &QCheckBox::toggled, this, &MainWindow::updateSafetyAuthorization);
     connect(&m_telemetry, &TelemetryService::snapshotChanged, this, &MainWindow::updateTelemetry);
     connect(&m_telemetry, &TelemetryService::statusMessageChanged, this, &MainWindow::appendStatus);
@@ -176,7 +176,6 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::startSystems()
 {
-    m_config = configFromUi();
     QString error;
     if (!m_config.save(&error)) {
         QMessageBox::warning(this, QStringLiteral("Config"), error);
@@ -240,25 +239,52 @@ void MainWindow::loadConfig()
         appendStatus(QStringLiteral("Config load failed: %1").arg(error));
     }
     m_safetyGate.setConfig(m_config);
-    m_mavlinkUrl->setText(m_config.mavlinkUrl);
-    m_videoUrl->setText(m_config.videoUrl);
-    m_udpBind->setText(QStringLiteral("%1:%2").arg(m_config.udpBindAddress).arg(m_config.udpBindPort));
 }
 
-AppConfig MainWindow::configFromUi() const
+void MainWindow::openSettings()
 {
-    AppConfig config = m_config;
-    config.mavlinkUrl = m_mavlinkUrl->text().trimmed();
-    config.videoUrl = m_videoUrl->text().trimmed();
-    const QString bind = m_udpBind->text().trimmed();
-    const int separator = bind.lastIndexOf(QLatin1Char(':'));
-    if (separator > 0) {
-        config.udpBindAddress = bind.left(separator);
-        bool ok = false;
-        const int port = bind.mid(separator + 1).toInt(&ok);
-        if (ok && port > 0 && port <= 65535) {
-            config.udpBindPort = static_cast<quint16>(port);
-        }
+    SettingsDialog dialog(m_config, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
     }
-    return config;
+
+    const bool shouldRestart = m_udpServer.isRunning() || m_telemetry.snapshot().connected;
+    m_config = dialog.config();
+    QString error;
+    if (!m_config.save(&error)) {
+        QMessageBox::warning(this, QStringLiteral("Settings"), error);
+        return;
+    }
+
+    m_safetyGate.setConfig(m_config);
+    appendStatus(QStringLiteral("Settings saved"));
+    if (shouldRestart) {
+        stopSystems();
+        startSystems();
+        appendStatus(QStringLiteral("Systems restarted with saved settings"));
+    }
+}
+
+QIcon MainWindow::createSettingsIcon() const
+{
+    QPixmap pixmap(32, 32);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.translate(16, 16);
+    painter.setPen(QPen(QColor(232, 238, 244), 2.2, Qt::SolidLine, Qt::RoundCap));
+    for (int i = 0; i < 8; ++i) {
+        painter.save();
+        painter.rotate(i * 45.0);
+        painter.drawLine(QPointF(0, -13), QPointF(0, -10));
+        painter.restore();
+    }
+    painter.setBrush(QColor(232, 238, 244));
+    painter.setPen(QPen(QColor(232, 238, 244), 2.2));
+    painter.drawEllipse(QPointF(0, 0), 8, 8);
+    painter.setBrush(QColor(18, 34, 50));
+    painter.setPen(Qt::NoPen);
+    painter.drawEllipse(QPointF(0, 0), 3.2, 3.2);
+    return QIcon(pixmap);
 }

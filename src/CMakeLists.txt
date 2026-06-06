@@ -30,6 +30,8 @@ qt_add_executable(droneaction
     MainWindow.h
     MapWidget.cpp
     MapWidget.h
+    SettingsDialog.cpp
+    SettingsDialog.h
 )
 
 target_link_libraries(droneaction PRIVATE droneaction_core Qt6::Widgets)

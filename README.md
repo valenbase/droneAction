@@ -6,6 +6,7 @@ The first milestone provides:
 
 - A Qt6/C++ desktop monitoring console.
 - OpenStreetMap-based GPS map view with an aircraft heading marker and local tile cache.
+- Interface endpoints are edited from the top settings button and stored under the app config directory.
 - Default G12 shared-network endpoints from the local G12 manual:
   - MAVLink telemetry/control: `tcp://192.168.43.1:5760`
   - RTSP video: `rtsp://192.168.144.108:554/stream=0`
