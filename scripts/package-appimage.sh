@@ -54,6 +54,13 @@ export QMAKE
 echo "Using QMAKE=$QMAKE"
 "$QMAKE" -query QT_VERSION
 
+APPIMAGETOOL_ARGS=()
+if [[ -n "${APPIMAGE_RUNTIME_FILE:-}" ]]; then
+    APPIMAGETOOL_ARGS+=(--runtime-file "$APPIMAGE_RUNTIME_FILE")
+elif [[ -f "$TOOLS_DIR/runtime-x86_64" ]]; then
+    APPIMAGETOOL_ARGS+=(--runtime-file "$TOOLS_DIR/runtime-x86_64")
+fi
+
 "$TOOLS_DIR/linuxdeploy-x86_64.AppImage" \
     --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/droneaction" \
@@ -62,6 +69,7 @@ echo "Using QMAKE=$QMAKE"
     --plugin qt
 
 ARCH=x86_64 "$TOOLS_DIR/appimagetool-x86_64.AppImage" \
+    "${APPIMAGETOOL_ARGS[@]}" \
     "$APPDIR" \
     "$DIST_DIR/$APPIMAGE_NAME"
 

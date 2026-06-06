@@ -31,5 +31,3 @@ qt_add_executable(droneaction
 target_link_libraries(droneaction PRIVATE droneaction_core Qt6::Widgets)
 
 install(TARGETS droneaction RUNTIME DESTINATION bin)
-
-qt_finalize_executable(droneaction)
