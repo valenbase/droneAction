@@ -171,7 +171,7 @@ QString AppConfig::runModeDisplayName(AppRunMode mode)
 {
     switch (mode) {
     case AppRunMode::Px4Sitl:
-        return QStringLiteral("PX4 SITL");
+        return QStringLiteral("Simulation");
     case AppRunMode::RealAircraft:
         return QStringLiteral("Real aircraft");
     }

@@ -38,8 +38,8 @@ RunModeDialog::RunModeDialog(AppRunMode currentMode, QWidget *parent)
     layout->addWidget(title);
 
     auto *buttons = new QHBoxLayout();
-    auto *sitl = modeButton(QStringLiteral("PX4 SITL"),
-                            QStringLiteral("Local UDP MAVLink profile"),
+    auto *sitl = modeButton(QStringLiteral("Simulation"),
+                            QStringLiteral("Local test profile"),
                             currentMode == AppRunMode::Px4Sitl,
                             this);
     auto *real = modeButton(QStringLiteral("Real aircraft"),

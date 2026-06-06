@@ -46,6 +46,15 @@ QString normalizedMavsdkUrl(const QString &url)
     return value;
 }
 
+QString publicDisplayText(QString message)
+{
+    message.replace(QStringLiteral("PX4"), QStringLiteral("aircraft"), Qt::CaseInsensitive);
+    message.replace(QStringLiteral("MAVLink"), QStringLiteral("vehicle link"), Qt::CaseInsensitive);
+    message.replace(QStringLiteral("MAVSDK"), QStringLiteral("command link"), Qt::CaseInsensitive);
+    message.replace(QStringLiteral("Offboard"), QStringLiteral("guided control"), Qt::CaseInsensitive);
+    return message;
+}
+
 #ifdef DRONEACTION_WITH_MAVSDK
 template <typename Result>
 QString resultToString(Result result)
@@ -71,7 +80,7 @@ QString flightModeToString(mavsdk::Telemetry::FlightMode mode)
     case mavsdk::Telemetry::FlightMode::Land:
         return QStringLiteral("Land");
     case mavsdk::Telemetry::FlightMode::Offboard:
-        return QStringLiteral("Offboard");
+        return QStringLiteral("Guided control");
     case mavsdk::Telemetry::FlightMode::FollowMe:
         return QStringLiteral("Follow me");
     case mavsdk::Telemetry::FlightMode::Manual:
@@ -273,7 +282,7 @@ void TelemetryService::connectToEndpoint(const AppConfig &config)
     m_timer.start();
 #endif
     emit statusMessageChanged(m_runMode == AppRunMode::Px4Sitl
-                                  ? QStringLiteral("PX4 SITL telemetry configured")
+                                  ? QStringLiteral("Simulation telemetry configured")
                                   : QStringLiteral("Aircraft telemetry configured"));
     emit snapshotChanged(m_snapshot);
 }
@@ -293,16 +302,16 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
     if (!m_config.mavlinkCommandExecutionEnabled) {
         return {QStringLiteral("disabled"),
                 m_config.runMode == AppRunMode::RealAircraft
-                    ? QStringLiteral("MAVLink command execution is disabled for real-aircraft mode")
-                    : QStringLiteral("MAVLink command execution is disabled")};
+                    ? QStringLiteral("Command execution is disabled for real-aircraft mode")
+                    : QStringLiteral("Command execution is disabled")};
     }
 
 #ifndef DRONEACTION_WITH_MAVSDK
     Q_UNUSED(command)
-    return {QStringLiteral("unavailable"), QStringLiteral("application was built without MAVSDK")};
+    return {QStringLiteral("unavailable"), QStringLiteral("application was built without command execution support")};
 #else
     if (!m_mavsdk) {
-        return {QStringLiteral("not_ready"), QStringLiteral("MAVSDK connection is not initialized")};
+        return {QStringLiteral("not_ready"), QStringLiteral("Vehicle link is not initialized")};
     }
 
     std::shared_ptr<mavsdk::System> system;
@@ -317,10 +326,10 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
         flightModeKnown = m_mavsdk->flightModeKnown;
     }
     if (!system || !system->is_connected()) {
-        return {QStringLiteral("not_ready"), QStringLiteral("MAVSDK autopilot is not connected")};
+        return {QStringLiteral("not_ready"), QStringLiteral("Aircraft is not connected")};
     }
     if (CommandParser::isMovement(command.kind) && !telemetry) {
-        return {QStringLiteral("not_ready"), QStringLiteral("MAVSDK telemetry is not ready for offboard confirmation")};
+        return {QStringLiteral("not_ready"), QStringLiteral("Aircraft state is not ready for control-mode confirmation")};
     }
 
     QPointer<TelemetryService> self(this);
@@ -330,9 +339,10 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             if (!self) {
                 return;
             }
-            QMetaObject::invokeMethod(self, [self, message]() {
+            const QString displayMessage = publicDisplayText(message);
+            QMetaObject::invokeMethod(self, [self, displayMessage]() {
                 if (self) {
-                    emit self->statusMessageChanged(message);
+                    emit self->statusMessageChanged(displayMessage);
                 }
             }, Qt::QueuedConnection);
         };
@@ -345,13 +355,13 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             const QString modeName = flightModeKnown ? flightModeToString(currentFlightMode) : QStringLiteral("Unknown");
 
             if (flightModeKnown && currentFlightMode == mavsdk::Telemetry::FlightMode::Offboard) {
-                report(QStringLiteral("PX4 already in Offboard; sending %1 setpoints").arg(commandName));
+                report(QStringLiteral("Aircraft already in guided control; sending %1 command").arg(commandName));
             } else {
-                report(QStringLiteral("PX4 mode is %1; streaming %2 setpoints before Offboard request").arg(modeName, commandName));
+                report(QStringLiteral("Aircraft mode is %1; preparing %2 command before control-mode request").arg(modeName, commandName));
                 for (int i = 0; i < 5; ++i) {
                     const auto seedResult = offboard.set_velocity_body(setpoint);
                     if (seedResult != mavsdk::Offboard::Result::Success) {
-                        report(QStringLiteral("MAVSDK setpoint stream failed before Offboard start: %1").arg(resultToString(seedResult)));
+                        report(QStringLiteral("Control stream failed before control-mode request: %1").arg(resultToString(seedResult)));
                         return;
                     }
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -359,7 +369,7 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
 
                 const auto startResult = offboard.start();
                 if (startResult != mavsdk::Offboard::Result::Success) {
-                    report(QStringLiteral("PX4 rejected Offboard switch: %1").arg(resultToString(startResult)));
+                    report(QStringLiteral("Aircraft rejected control-mode switch: %1").arg(resultToString(startResult)));
                     return;
                 }
                 const OffboardConfirmationResult confirmation =
@@ -368,17 +378,17 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
                     offboard.set_velocity_body(zero);
                     offboard.stop();
                     if (confirmation.setpointFailed) {
-                        report(QStringLiteral("MAVSDK setpoint stream failed while waiting for Offboard: %1")
+                        report(QStringLiteral("Control stream failed while waiting for control mode: %1")
                                    .arg(resultToString(confirmation.lastSetpointResult)));
                     } else {
                         const QString lastMode = confirmation.modeKnown
                             ? flightModeToString(confirmation.lastMode)
                             : QStringLiteral("Unknown");
-                        report(QStringLiteral("PX4 did not enter Offboard; last mode %1, movement aborted").arg(lastMode));
+                        report(QStringLiteral("Aircraft did not enter guided control; last mode %1, movement aborted").arg(lastMode));
                     }
                     return;
                 }
-                report(QStringLiteral("PX4 Offboard confirmed; executing %1").arg(commandName));
+                report(QStringLiteral("Guided control confirmed; executing %1").arg(commandName));
             }
 
             const auto deadline = std::chrono::steady_clock::now()
@@ -386,7 +396,7 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             while (std::chrono::steady_clock::now() < deadline) {
                 const auto setResult = offboard.set_velocity_body(setpoint);
                 if (setResult != mavsdk::Offboard::Result::Success) {
-                    report(QStringLiteral("MAVSDK velocity setpoint failed: %1").arg(resultToString(setResult)));
+                    report(QStringLiteral("Movement command update failed: %1").arg(resultToString(setResult)));
                     break;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -397,7 +407,7 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             } else {
                 offboard.stop();
             }
-            report(QStringLiteral("MAVSDK command completed: %1").arg(commandName));
+            report(QStringLiteral("Command completed: %1").arg(commandName));
             return;
         }
 
@@ -407,30 +417,30 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             }
             const auto armResult = action.arm();
             if (armResult != mavsdk::Action::Result::Success) {
-                report(QStringLiteral("MAVSDK arm failed: %1").arg(resultToString(armResult)));
+                report(QStringLiteral("Arm failed: %1").arg(resultToString(armResult)));
                 return;
             }
             const auto takeoffResult = action.takeoff();
-            report(QStringLiteral("MAVSDK takeoff: %1").arg(resultToString(takeoffResult)));
+            report(QStringLiteral("Takeoff command: %1").arg(resultToString(takeoffResult)));
             return;
         }
 
         if (command.kind == CommandKind::Land) {
             const auto result = action.land();
-            report(QStringLiteral("MAVSDK land: %1").arg(resultToString(result)));
+            report(QStringLiteral("Land command: %1").arg(resultToString(result)));
             return;
         }
 
         if (command.kind == CommandKind::ReturnToLaunch) {
             const auto result = action.return_to_launch();
-            report(QStringLiteral("MAVSDK RTL: %1").arg(resultToString(result)));
+            report(QStringLiteral("Return command: %1").arg(resultToString(result)));
             return;
         }
 
-        report(QStringLiteral("MAVSDK command ignored: %1").arg(CommandParser::kindToString(command.kind)));
+        report(QStringLiteral("Command ignored: %1").arg(CommandParser::kindToString(command.kind)));
     }).detach();
 
-    return {QStringLiteral("queued"), QStringLiteral("command queued for MAVSDK execution")};
+    return {QStringLiteral("queued"), QStringLiteral("command queued for execution")};
 #endif
 }
 
@@ -448,10 +458,10 @@ void TelemetryService::startMavsdk(const AppConfig &config)
 {
 #ifndef DRONEACTION_WITH_MAVSDK
     Q_UNUSED(config)
-    emit statusMessageChanged(QStringLiteral("MAVSDK support is not enabled; using simulated telemetry"));
+    emit statusMessageChanged(QStringLiteral("Command-link support is not enabled; using simulated telemetry"));
 #else
     if (config.mavlinkUrl.trimmed().isEmpty()) {
-        emit statusMessageChanged(QStringLiteral("MAVSDK endpoint is empty"));
+        emit statusMessageChanged(QStringLiteral("Vehicle link endpoint is empty"));
         return;
     }
 
@@ -459,7 +469,7 @@ void TelemetryService::startMavsdk(const AppConfig &config)
     const QString mavsdkUrl = normalizedMavsdkUrl(config.mavlinkUrl);
     const auto connectionResult = m_mavsdk->mavsdk.add_any_connection(mavsdkUrl.toStdString());
     if (connectionResult != mavsdk::ConnectionResult::Success) {
-        emit statusMessageChanged(QStringLiteral("MAVSDK connection failed: %1").arg(resultToString(connectionResult)));
+        emit statusMessageChanged(QStringLiteral("Vehicle link connection failed: %1").arg(resultToString(connectionResult)));
         return;
     }
 
@@ -473,7 +483,7 @@ void TelemetryService::startMavsdk(const AppConfig &config)
         if (!system) {
             QMetaObject::invokeMethod(self, [self]() {
                 if (self) {
-                    emit self->statusMessageChanged(QStringLiteral("MAVSDK waiting for autopilot heartbeat"));
+                    emit self->statusMessageChanged(QStringLiteral("Waiting for aircraft heartbeat"));
                 }
             }, Qt::QueuedConnection);
             return;
@@ -489,9 +499,9 @@ void TelemetryService::startMavsdk(const AppConfig &config)
             if (self) {
                 self->applySnapshotUpdate([](TelemetrySnapshot *snapshot) {
                     snapshot->connected = true;
-                    snapshot->mode = QStringLiteral("MAVSDK connected");
+                    snapshot->mode = QStringLiteral("Connected");
                 });
-                emit self->statusMessageChanged(QStringLiteral("MAVSDK autopilot connected"));
+                emit self->statusMessageChanged(QStringLiteral("Aircraft connected"));
             }
         }, Qt::QueuedConnection);
 
@@ -535,9 +545,9 @@ void TelemetryService::startMavsdk(const AppConfig &config)
             if (!self || !shouldReportStatusText(status.type)) {
                 return;
             }
-            const QString message = QStringLiteral("PX4 %1: %2")
+            const QString message = QStringLiteral("Aircraft %1: %2")
                                         .arg(statusTextTypeToString(status.type),
-                                             QString::fromStdString(status.text));
+                                             publicDisplayText(QString::fromStdString(status.text)));
             QMetaObject::invokeMethod(self, [self, message]() {
                 if (self) {
                     emit self->statusMessageChanged(message);

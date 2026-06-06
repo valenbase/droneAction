@@ -45,7 +45,7 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
     m_videoUrl = new QLineEdit(config.videoUrl, interfaces);
     m_udpBind = new QLineEdit(QStringLiteral("%1:%2").arg(config.udpBindAddress).arg(config.udpBindPort), interfaces);
     m_allowedIps = new QLineEdit(config.rk3588AllowedIps.join(QStringLiteral(",")), interfaces);
-    interfaceForm->addRow(QStringLiteral("MAVLink"), m_mavlinkUrl);
+    interfaceForm->addRow(QStringLiteral("Vehicle Link"), m_mavlinkUrl);
     interfaceForm->addRow(QStringLiteral("RTSP"), m_videoUrl);
     interfaceForm->addRow(QStringLiteral("RK3588 UDP"), m_udpBind);
     interfaceForm->addRow(QStringLiteral("Allowed IPs"), m_allowedIps);
@@ -64,14 +64,14 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
     m_maxDuration->setValue(config.maxCommandDurationMs);
     m_requireHighRiskConfirmation = new QCheckBox(QStringLiteral("Require confirmation"), safety);
     m_requireHighRiskConfirmation->setChecked(config.requireHighRiskConfirmation);
-    m_mavlinkCommandExecution = new QCheckBox(QStringLiteral("Enable MAVLink command execution"), safety);
+    m_mavlinkCommandExecution = new QCheckBox(QStringLiteral("Enable command execution"), safety);
     m_mavlinkCommandExecution->setChecked(config.mavlinkCommandExecutionEnabled);
     safetyForm->addRow(QStringLiteral("Max velocity m/s"), m_maxVelocity);
     safetyForm->addRow(QStringLiteral("Max vertical m/s"), m_maxVertical);
     safetyForm->addRow(QStringLiteral("Max yaw deg/s"), m_maxYaw);
     safetyForm->addRow(QStringLiteral("Max duration ms"), m_maxDuration);
     safetyForm->addRow(QStringLiteral("High-risk actions"), m_requireHighRiskConfirmation);
-    safetyForm->addRow(QStringLiteral("MAVLink execution"), m_mavlinkCommandExecution);
+    safetyForm->addRow(QStringLiteral("Remote execution"), m_mavlinkCommandExecution);
     layout->addWidget(safety);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);

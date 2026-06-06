@@ -34,7 +34,7 @@ QString flightModeBadgeStyle(const QString &mode)
     QString background = QStringLiteral("#122232");
     QString text = QStringLiteral("#e8eef4");
 
-    if (lower == QStringLiteral("offboard")) {
+    if (lower == QStringLiteral("guided control")) {
         border = QStringLiteral("#23c0a4");
         background = QStringLiteral("#0d302c");
     } else if (lower == QStringLiteral("offline") || lower == QStringLiteral("unknown")) {
@@ -83,7 +83,7 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
     , m_config(config)
     , m_udpServer(&m_safetyGate, &m_telemetry, this)
 {
-    setWindowTitle(QStringLiteral("DroneAction PX4/G12 Monitor"));
+    setWindowTitle(QStringLiteral("DroneAction Monitor"));
     resize(1280, 820);
     setMinimumSize(1024, 680);
 
@@ -100,7 +100,7 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
     m_flightModeBadge->setMinimumWidth(170);
     m_flightModeBadge->setFixedHeight(34);
     m_flightModeBadge->setAlignment(Qt::AlignCenter);
-    m_flightModeBadge->setToolTip(QStringLiteral("Current PX4 flight mode"));
+    m_flightModeBadge->setToolTip(QStringLiteral("Current flight mode"));
     header->addWidget(m_flightModeBadge);
     header->addStretch();
 
