@@ -64,6 +64,11 @@ python3 tools/rk3588_command_cli.py --json --once '{"version":1,"request_id":"rk
 - `unavailable`: the application was built without MAVSDK.
 - `not_ready`: MAVSDK is enabled but no autopilot is connected yet.
 
+Movement commands enter PX4 Offboard mode inside the execution thread. The application sends zero velocity
+setpoints, requests Offboard, waits for Offboard confirmation, and only then sends the requested movement
+setpoint. The UDP ACK is not a completion receipt; mode-switch failures and command completion are reported in
+the application status log.
+
 PX4 SITL mode enables MAVLink command execution by default and uses `udp://:14540`.
 Real-aircraft mode disables MAVLink command execution by default; it must be enabled explicitly in Settings.
 

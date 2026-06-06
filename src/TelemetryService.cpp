@@ -5,6 +5,7 @@
 #include <QtMath>
 #include <cmath>
 #include <chrono>
+#include <condition_variable>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -54,6 +55,43 @@ QString resultToString(Result result)
     return QString::fromStdString(stream.str());
 }
 
+QString flightModeToString(mavsdk::Telemetry::FlightMode mode)
+{
+    switch (mode) {
+    case mavsdk::Telemetry::FlightMode::Ready:
+        return QStringLiteral("Ready");
+    case mavsdk::Telemetry::FlightMode::Takeoff:
+        return QStringLiteral("Takeoff");
+    case mavsdk::Telemetry::FlightMode::Hold:
+        return QStringLiteral("Hold");
+    case mavsdk::Telemetry::FlightMode::Mission:
+        return QStringLiteral("Mission");
+    case mavsdk::Telemetry::FlightMode::ReturnToLaunch:
+        return QStringLiteral("Return to launch");
+    case mavsdk::Telemetry::FlightMode::Land:
+        return QStringLiteral("Land");
+    case mavsdk::Telemetry::FlightMode::Offboard:
+        return QStringLiteral("Offboard");
+    case mavsdk::Telemetry::FlightMode::FollowMe:
+        return QStringLiteral("Follow me");
+    case mavsdk::Telemetry::FlightMode::Manual:
+        return QStringLiteral("Manual");
+    case mavsdk::Telemetry::FlightMode::Altctl:
+        return QStringLiteral("Altitude control");
+    case mavsdk::Telemetry::FlightMode::Posctl:
+        return QStringLiteral("Position control");
+    case mavsdk::Telemetry::FlightMode::Acro:
+        return QStringLiteral("Acro");
+    case mavsdk::Telemetry::FlightMode::Stabilized:
+        return QStringLiteral("Stabilized");
+    case mavsdk::Telemetry::FlightMode::Rattitude:
+        return QStringLiteral("Rattitude");
+    case mavsdk::Telemetry::FlightMode::Unknown:
+        break;
+    }
+    return QStringLiteral("Unknown");
+}
+
 mavsdk::Offboard::VelocityBodyYawspeed velocitySetpoint(const DroneCommand &command)
 {
     mavsdk::Offboard::VelocityBodyYawspeed setpoint {};
@@ -90,6 +128,46 @@ mavsdk::Offboard::VelocityBodyYawspeed velocitySetpoint(const DroneCommand &comm
     }
     return setpoint;
 }
+
+bool waitForOffboardConfirmation(mavsdk::Telemetry &telemetry,
+                                 mavsdk::Offboard &offboard,
+                                 const mavsdk::Offboard::VelocityBodyYawspeed &holdSetpoint,
+                                 std::chrono::milliseconds timeout)
+{
+    struct ModeWaitState {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool offboardFlightModeSeen = false;
+        bool modeUpdateSeen = false;
+    };
+    auto state = std::make_shared<ModeWaitState>();
+
+    const auto handle = telemetry.subscribe_flight_mode([state](mavsdk::Telemetry::FlightMode mode) {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        state->modeUpdateSeen = true;
+        state->offboardFlightModeSeen = mode == mavsdk::Telemetry::FlightMode::Offboard;
+        state->changed.notify_all();
+    });
+
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    bool confirmed = false;
+    while (std::chrono::steady_clock::now() < deadline) {
+        offboard.set_velocity_body(holdSetpoint);
+        if (offboard.is_active()) {
+            std::lock_guard<std::mutex> lock(state->mutex);
+            if (!state->modeUpdateSeen || state->offboardFlightModeSeen) {
+                confirmed = true;
+                break;
+            }
+        }
+
+        std::unique_lock<std::mutex> lock(state->mutex);
+        state->changed.wait_for(lock, std::chrono::milliseconds(100));
+    }
+
+    telemetry.unsubscribe_flight_mode(handle);
+    return confirmed;
+}
 #endif
 }
 
@@ -97,7 +175,7 @@ struct TelemetryService::MavsdkRuntime {
 #ifdef DRONEACTION_WITH_MAVSDK
     mavsdk::Mavsdk mavsdk {mavsdk::Mavsdk::Configuration{mavsdk::ComponentType::GroundStation}};
     std::shared_ptr<mavsdk::System> system;
-    std::unique_ptr<mavsdk::Telemetry> telemetry;
+    std::shared_ptr<mavsdk::Telemetry> telemetry;
     std::mutex mutex;
 #endif
 };
@@ -177,16 +255,21 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
     }
 
     std::shared_ptr<mavsdk::System> system;
+    std::shared_ptr<mavsdk::Telemetry> telemetry;
     {
         std::lock_guard<std::mutex> lock(m_mavsdk->mutex);
         system = m_mavsdk->system;
+        telemetry = m_mavsdk->telemetry;
     }
     if (!system || !system->is_connected()) {
         return {QStringLiteral("not_ready"), QStringLiteral("MAVSDK autopilot is not connected")};
     }
+    if (CommandParser::isMovement(command.kind) && !telemetry) {
+        return {QStringLiteral("not_ready"), QStringLiteral("MAVSDK telemetry is not ready for offboard confirmation")};
+    }
 
     QPointer<TelemetryService> self(this);
-    std::thread([self, system, command]() {
+    std::thread([self, system, telemetry, command]() {
         mavsdk::Action action(system);
         const auto report = [self](const QString &message) {
             if (!self) {
@@ -203,12 +286,28 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             mavsdk::Offboard offboard(system);
             const auto setpoint = velocitySetpoint(command);
             const mavsdk::Offboard::VelocityBodyYawspeed zero {};
-            offboard.set_velocity_body(zero);
+            report(QStringLiteral("MAVSDK offboard switch requested for %1").arg(CommandParser::kindToString(command.kind)));
+            for (int i = 0; i < 5; ++i) {
+                const auto seedResult = offboard.set_velocity_body(zero);
+                if (seedResult != mavsdk::Offboard::Result::Success) {
+                    report(QStringLiteral("MAVSDK zero setpoint failed before offboard start: %1").arg(resultToString(seedResult)));
+                    return;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+
             const auto startResult = offboard.start();
             if (startResult != mavsdk::Offboard::Result::Success) {
                 report(QStringLiteral("MAVSDK offboard start failed: %1").arg(resultToString(startResult)));
                 return;
             }
+            if (!waitForOffboardConfirmation(*telemetry, offboard, zero, std::chrono::milliseconds(2500))) {
+                offboard.set_velocity_body(zero);
+                offboard.stop();
+                report(QStringLiteral("MAVSDK offboard mode confirmation timed out; movement aborted"));
+                return;
+            }
+            report(QStringLiteral("MAVSDK offboard mode confirmed; executing %1").arg(CommandParser::kindToString(command.kind)));
 
             const auto deadline = std::chrono::steady_clock::now()
                 + std::chrono::milliseconds(command.durationMs > 0 ? command.durationMs : 1000);
@@ -311,7 +410,7 @@ void TelemetryService::startMavsdk(const AppConfig &config)
         {
             std::lock_guard<std::mutex> lock(runtime->mutex);
             runtime->system = system.value();
-            runtime->telemetry = std::make_unique<mavsdk::Telemetry>(runtime->system);
+            runtime->telemetry = std::make_shared<mavsdk::Telemetry>(runtime->system);
         }
 
         QMetaObject::invokeMethod(self, [self]() {
@@ -338,6 +437,21 @@ void TelemetryService::startMavsdk(const AppConfig &config)
         telemetry->set_rate_velocity_ned(5.0);
         telemetry->set_rate_battery(1.0);
         telemetry->set_rate_gps_info(1.0);
+
+        telemetry->subscribe_flight_mode([self](mavsdk::Telemetry::FlightMode mode) {
+            if (!self) {
+                return;
+            }
+            QMetaObject::invokeMethod(self, [self, mode]() {
+                if (!self) {
+                    return;
+                }
+                self->applySnapshotUpdate([mode](TelemetrySnapshot *snapshot) {
+                    snapshot->connected = true;
+                    snapshot->mode = flightModeToString(mode);
+                });
+            }, Qt::QueuedConnection);
+        });
 
         telemetry->subscribe_position([self](mavsdk::Telemetry::Position position) {
             if (!self) {
