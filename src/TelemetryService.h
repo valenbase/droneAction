@@ -11,7 +11,7 @@ class TelemetryService : public QObject {
 public:
     explicit TelemetryService(QObject *parent = nullptr);
 
-    void connectToEndpoint(const QString &mavlinkUrl);
+    void connectToEndpoint(const AppConfig &config);
     void disconnectFromEndpoint();
     TelemetrySnapshot snapshot() const;
     QString endpoint() const;
@@ -27,5 +27,8 @@ private:
     QTimer m_timer;
     TelemetrySnapshot m_snapshot;
     QString m_endpoint;
+    AppRunMode m_runMode = AppRunMode::RealAircraft;
+    double m_homeLatitudeDeg = 29.56301;
+    double m_homeLongitudeDeg = 106.55156;
     int m_tick = 0;
 };

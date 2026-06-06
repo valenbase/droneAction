@@ -30,6 +30,8 @@ qt_add_executable(droneaction
     MainWindow.h
     MapWidget.cpp
     MapWidget.h
+    RunModeDialog.cpp
+    RunModeDialog.h
     SettingsDialog.cpp
     SettingsDialog.h
 )

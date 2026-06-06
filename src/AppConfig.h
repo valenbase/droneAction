@@ -4,7 +4,13 @@
 #include <QStringList>
 #include <QJsonObject>
 
+enum class AppRunMode {
+    RealAircraft,
+    Px4Sitl
+};
+
 struct AppConfig {
+    AppRunMode runMode = AppRunMode::RealAircraft;
     QString mavlinkUrl = QStringLiteral("tcp://192.168.43.1:5760");
     QString videoUrl = QStringLiteral("rtsp://192.168.144.108:554/stream=0");
     QString udpBindAddress = QStringLiteral("0.0.0.0");
@@ -23,4 +29,8 @@ struct AppConfig {
 
     QJsonObject toJson() const;
     static AppConfig fromJson(const QJsonObject &object);
+    static QString runModeKey(AppRunMode mode);
+    static QString runModeDisplayName(AppRunMode mode);
+    static AppRunMode runModeFromKey(const QString &key, AppRunMode fallback = AppRunMode::RealAircraft);
+    void applyRunModeDefaults(AppRunMode mode);
 };

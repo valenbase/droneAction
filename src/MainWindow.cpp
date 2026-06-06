@@ -29,7 +29,14 @@ void setCardStyle(QWidget *widget)
 }
 
 MainWindow::MainWindow(QWidget *parent)
+    : MainWindow(AppConfig(), parent)
+{
+    loadConfig();
+}
+
+MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
     : QMainWindow(parent)
+    , m_config(config)
     , m_udpServer(&m_safetyGate, &m_telemetry, this)
 {
     setWindowTitle(QStringLiteral("DroneAction PX4/G12 Monitor"));
@@ -116,7 +123,9 @@ MainWindow::MainWindow(QWidget *parent)
     auto *statusLayout = new QFormLayout(statusBox);
     m_linkStatus = new QLabel(QStringLiteral("offline"));
     m_videoStatus = new QLabel(QStringLiteral("offline"));
+    m_runModeStatus = new QLabel(AppConfig::runModeDisplayName(m_config.runMode));
     m_mode = new QLabel(QStringLiteral("offline"));
+    statusLayout->addRow(QStringLiteral("Run"), m_runModeStatus);
     statusLayout->addRow(QStringLiteral("Telemetry"), m_linkStatus);
     statusLayout->addRow(QStringLiteral("Video"), m_videoStatus);
     statusLayout->addRow(QStringLiteral("Mode"), m_mode);
@@ -171,7 +180,8 @@ MainWindow::MainWindow(QWidget *parent)
             });
     connect(&m_udpServer, &UdpCommandServer::commandObserved, this, &MainWindow::appendCommand);
 
-    loadConfig();
+    m_safetyGate.setConfig(m_config);
+    updateRunModeStatus();
 }
 
 void MainWindow::startSystems()
@@ -181,7 +191,7 @@ void MainWindow::startSystems()
         QMessageBox::warning(this, QStringLiteral("Config"), error);
     }
     m_safetyGate.setConfig(m_config);
-    m_telemetry.connectToEndpoint(m_config.mavlinkUrl);
+    m_telemetry.connectToEndpoint(m_config);
     m_video.start(m_config.videoUrl);
     if (!m_udpServer.start(m_config, &error)) {
         QMessageBox::warning(this, QStringLiteral("UDP"), error);
@@ -239,6 +249,7 @@ void MainWindow::loadConfig()
         appendStatus(QStringLiteral("Config load failed: %1").arg(error));
     }
     m_safetyGate.setConfig(m_config);
+    updateRunModeStatus();
 }
 
 void MainWindow::openSettings()
@@ -257,12 +268,21 @@ void MainWindow::openSettings()
     }
 
     m_safetyGate.setConfig(m_config);
+    updateRunModeStatus();
     appendStatus(QStringLiteral("Settings saved"));
     if (shouldRestart) {
         stopSystems();
         startSystems();
         appendStatus(QStringLiteral("Systems restarted with saved settings"));
     }
+}
+
+void MainWindow::updateRunModeStatus()
+{
+    if (m_runModeStatus) {
+        m_runModeStatus->setText(AppConfig::runModeDisplayName(m_config.runMode));
+    }
+    setWindowTitle(QStringLiteral("DroneAction - %1").arg(AppConfig::runModeDisplayName(m_config.runMode)));
 }
 
 QIcon MainWindow::createSettingsIcon() const

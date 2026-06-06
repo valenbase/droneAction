@@ -100,6 +100,7 @@ QJsonObject AppConfig::toJson() const
     }
 
     return {
+        {QStringLiteral("run_mode"), runModeKey(runMode)},
         {QStringLiteral("mavlink_url"), mavlinkUrl},
         {QStringLiteral("video_url"), videoUrl},
         {QStringLiteral("rk3588_udp_bind"), QStringLiteral("%1:%2").arg(udpBindAddress).arg(udpBindPort)},
@@ -115,6 +116,7 @@ QJsonObject AppConfig::toJson() const
 AppConfig AppConfig::fromJson(const QJsonObject &object)
 {
     AppConfig config;
+    config.runMode = runModeFromKey(stringValue(object, "run_mode", runModeKey(config.runMode)), config.runMode);
     config.mavlinkUrl = stringValue(object, "mavlink_url", config.mavlinkUrl);
     config.videoUrl = stringValue(object, "video_url", config.videoUrl);
 
@@ -147,4 +149,55 @@ AppConfig AppConfig::fromJson(const QJsonObject &object)
     config.requireHighRiskConfirmation = boolValue(object, "require_high_risk_confirmation",
                                                    config.requireHighRiskConfirmation);
     return config;
+}
+
+QString AppConfig::runModeKey(AppRunMode mode)
+{
+    switch (mode) {
+    case AppRunMode::Px4Sitl:
+        return QStringLiteral("px4_sitl");
+    case AppRunMode::RealAircraft:
+        return QStringLiteral("real_aircraft");
+    }
+    return QStringLiteral("real_aircraft");
+}
+
+QString AppConfig::runModeDisplayName(AppRunMode mode)
+{
+    switch (mode) {
+    case AppRunMode::Px4Sitl:
+        return QStringLiteral("PX4 SITL");
+    case AppRunMode::RealAircraft:
+        return QStringLiteral("Real aircraft");
+    }
+    return QStringLiteral("Real aircraft");
+}
+
+AppRunMode AppConfig::runModeFromKey(const QString &key, AppRunMode fallback)
+{
+    const QString normalized = key.trimmed().toLower();
+    if (normalized == QStringLiteral("px4_sitl") || normalized == QStringLiteral("sitl")) {
+        return AppRunMode::Px4Sitl;
+    }
+    if (normalized == QStringLiteral("real_aircraft") || normalized == QStringLiteral("real")) {
+        return AppRunMode::RealAircraft;
+    }
+    return fallback;
+}
+
+void AppConfig::applyRunModeDefaults(AppRunMode mode)
+{
+    runMode = mode;
+    if (mode == AppRunMode::Px4Sitl) {
+        mavlinkUrl = QStringLiteral("udp://:14540");
+        videoUrl.clear();
+        udpBindAddress = QStringLiteral("0.0.0.0");
+        udpBindPort = 50050;
+        return;
+    }
+
+    mavlinkUrl = QStringLiteral("tcp://192.168.43.1:5760");
+    videoUrl = QStringLiteral("rtsp://192.168.144.108:554/stream=0");
+    udpBindAddress = QStringLiteral("0.0.0.0");
+    udpBindPort = 50050;
 }

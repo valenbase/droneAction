@@ -22,6 +22,7 @@ class MainWindow : public QMainWindow {
 
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    explicit MainWindow(const AppConfig &config, QWidget *parent = nullptr);
 
 private slots:
     void startSystems();
@@ -34,6 +35,7 @@ private slots:
 
 private:
     void loadConfig();
+    void updateRunModeStatus();
     QIcon createSettingsIcon() const;
 
     AppConfig m_config;
@@ -46,6 +48,7 @@ private:
     QCheckBox *m_authorizeControl = nullptr;
     QLabel *m_linkStatus = nullptr;
     QLabel *m_videoStatus = nullptr;
+    QLabel *m_runModeStatus = nullptr;
     AttitudeIndicatorWidget *m_attitude = nullptr;
     CircularGaugeWidget *m_altitude = nullptr;
     CircularGaugeWidget *m_groundSpeed = nullptr;
