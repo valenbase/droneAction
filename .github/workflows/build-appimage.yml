@@ -1,0 +1,79 @@
+name: build-appimage
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            ca-certificates \
+            cmake \
+            curl \
+            desktop-file-utils \
+            file \
+            fuse \
+            libfuse2 \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            ninja-build \
+            patchelf \
+            qt6-base-dev \
+            qt6-base-dev-tools \
+            gstreamer1.0-tools \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good
+
+      - name: Install MAVSDK
+        env:
+          MAVSDK_VERSION: "3.11.0"
+        run: |
+          curl -fsSLO "https://github.com/mavlink/MAVSDK/releases/download/v${MAVSDK_VERSION}/libmavsdk-dev_${MAVSDK_VERSION}_ubuntu22.04_amd64.deb"
+          sudo apt-get install -y "./libmavsdk-dev_${MAVSDK_VERSION}_ubuntu22.04_amd64.deb"
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DDRONEACTION_ENABLE_MAVSDK=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package AppImage
+        run: scripts/package-appimage.sh
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: droneaction-appimage
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG_NAME" >/dev/null 2>&1 || \
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --notes "Automated DroneAction AppImage release."
+          gh release upload "$TAG_NAME" dist/*.AppImage --clobber

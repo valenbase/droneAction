@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DroneAction
+Comment=PX4/G12 drone monitoring console
+Exec=droneaction
+Icon=com.valenbase.DroneAction
+Categories=Utility;Network;
+Terminal=false

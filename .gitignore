@@ -1,0 +1,9 @@
+build/
+dist/
+AppDir/
+.appimage-tools/
+*.AppImage
+*.user
+*.swp
+.DS_Store
+compile_commands.json

@@ -1,0 +1,7 @@
+add_executable(command_parser_tests test_command_parser.cpp)
+target_link_libraries(command_parser_tests PRIVATE droneaction_core Qt6::Test)
+add_test(NAME command_parser_tests COMMAND command_parser_tests)
+
+add_executable(safety_gate_tests test_safety_gate.cpp)
+target_link_libraries(safety_gate_tests PRIVATE droneaction_core Qt6::Test)
+add_test(NAME safety_gate_tests COMMAND safety_gate_tests)
