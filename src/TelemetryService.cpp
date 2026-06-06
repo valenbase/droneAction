@@ -92,6 +92,38 @@ QString flightModeToString(mavsdk::Telemetry::FlightMode mode)
     return QStringLiteral("Unknown");
 }
 
+QString statusTextTypeToString(mavsdk::Telemetry::StatusTextType type)
+{
+    switch (type) {
+    case mavsdk::Telemetry::StatusTextType::Debug:
+        return QStringLiteral("debug");
+    case mavsdk::Telemetry::StatusTextType::Info:
+        return QStringLiteral("info");
+    case mavsdk::Telemetry::StatusTextType::Notice:
+        return QStringLiteral("notice");
+    case mavsdk::Telemetry::StatusTextType::Warning:
+        return QStringLiteral("warning");
+    case mavsdk::Telemetry::StatusTextType::Error:
+        return QStringLiteral("error");
+    case mavsdk::Telemetry::StatusTextType::Critical:
+        return QStringLiteral("critical");
+    case mavsdk::Telemetry::StatusTextType::Alert:
+        return QStringLiteral("alert");
+    case mavsdk::Telemetry::StatusTextType::Emergency:
+        return QStringLiteral("emergency");
+    }
+    return QStringLiteral("unknown");
+}
+
+bool shouldReportStatusText(mavsdk::Telemetry::StatusTextType type)
+{
+    return type == mavsdk::Telemetry::StatusTextType::Warning
+        || type == mavsdk::Telemetry::StatusTextType::Error
+        || type == mavsdk::Telemetry::StatusTextType::Critical
+        || type == mavsdk::Telemetry::StatusTextType::Alert
+        || type == mavsdk::Telemetry::StatusTextType::Emergency;
+}
+
 mavsdk::Offboard::VelocityBodyYawspeed velocitySetpoint(const DroneCommand &command)
 {
     mavsdk::Offboard::VelocityBodyYawspeed setpoint {};
@@ -129,36 +161,53 @@ mavsdk::Offboard::VelocityBodyYawspeed velocitySetpoint(const DroneCommand &comm
     return setpoint;
 }
 
-bool waitForOffboardConfirmation(mavsdk::Telemetry &telemetry,
-                                 mavsdk::Offboard &offboard,
-                                 const mavsdk::Offboard::VelocityBodyYawspeed &holdSetpoint,
-                                 std::chrono::milliseconds timeout)
+struct OffboardConfirmationResult {
+    bool confirmed = false;
+    bool modeKnown = false;
+    mavsdk::Telemetry::FlightMode lastMode = mavsdk::Telemetry::FlightMode::Unknown;
+    bool setpointFailed = false;
+    mavsdk::Offboard::Result lastSetpointResult = mavsdk::Offboard::Result::Unknown;
+};
+
+OffboardConfirmationResult waitForOffboardConfirmation(mavsdk::Telemetry &telemetry,
+                                                       mavsdk::Offboard &offboard,
+                                                       const mavsdk::Offboard::VelocityBodyYawspeed &setpoint,
+                                                       std::chrono::milliseconds timeout)
 {
     struct ModeWaitState {
         std::mutex mutex;
         std::condition_variable changed;
         bool offboardFlightModeSeen = false;
         bool modeUpdateSeen = false;
+        mavsdk::Telemetry::FlightMode lastMode = mavsdk::Telemetry::FlightMode::Unknown;
     };
     auto state = std::make_shared<ModeWaitState>();
 
     const auto handle = telemetry.subscribe_flight_mode([state](mavsdk::Telemetry::FlightMode mode) {
         std::lock_guard<std::mutex> lock(state->mutex);
         state->modeUpdateSeen = true;
+        state->lastMode = mode;
         state->offboardFlightModeSeen = mode == mavsdk::Telemetry::FlightMode::Offboard;
         state->changed.notify_all();
     });
 
     const auto deadline = std::chrono::steady_clock::now() + timeout;
-    bool confirmed = false;
+    OffboardConfirmationResult result;
     while (std::chrono::steady_clock::now() < deadline) {
-        offboard.set_velocity_body(holdSetpoint);
-        if (offboard.is_active()) {
+        result.lastSetpointResult = offboard.set_velocity_body(setpoint);
+        if (result.lastSetpointResult != mavsdk::Offboard::Result::Success) {
+            result.setpointFailed = true;
+            break;
+        }
+
+        {
             std::lock_guard<std::mutex> lock(state->mutex);
-            if (!state->modeUpdateSeen || state->offboardFlightModeSeen) {
-                confirmed = true;
-                break;
-            }
+            result.modeKnown = state->modeUpdateSeen;
+            result.lastMode = state->lastMode;
+            result.confirmed = state->offboardFlightModeSeen;
+        }
+        if (result.confirmed) {
+            break;
         }
 
         std::unique_lock<std::mutex> lock(state->mutex);
@@ -166,7 +215,7 @@ bool waitForOffboardConfirmation(mavsdk::Telemetry &telemetry,
     }
 
     telemetry.unsubscribe_flight_mode(handle);
-    return confirmed;
+    return result;
 }
 #endif
 }
@@ -176,6 +225,8 @@ struct TelemetryService::MavsdkRuntime {
     mavsdk::Mavsdk mavsdk {mavsdk::Mavsdk::Configuration{mavsdk::ComponentType::GroundStation}};
     std::shared_ptr<mavsdk::System> system;
     std::shared_ptr<mavsdk::Telemetry> telemetry;
+    mavsdk::Telemetry::FlightMode flightMode = mavsdk::Telemetry::FlightMode::Unknown;
+    bool flightModeKnown = false;
     std::mutex mutex;
 #endif
 };
@@ -256,10 +307,14 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
 
     std::shared_ptr<mavsdk::System> system;
     std::shared_ptr<mavsdk::Telemetry> telemetry;
+    mavsdk::Telemetry::FlightMode currentFlightMode = mavsdk::Telemetry::FlightMode::Unknown;
+    bool flightModeKnown = false;
     {
         std::lock_guard<std::mutex> lock(m_mavsdk->mutex);
         system = m_mavsdk->system;
         telemetry = m_mavsdk->telemetry;
+        currentFlightMode = m_mavsdk->flightMode;
+        flightModeKnown = m_mavsdk->flightModeKnown;
     }
     if (!system || !system->is_connected()) {
         return {QStringLiteral("not_ready"), QStringLiteral("MAVSDK autopilot is not connected")};
@@ -269,7 +324,7 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
     }
 
     QPointer<TelemetryService> self(this);
-    std::thread([self, system, telemetry, command]() {
+    std::thread([self, system, telemetry, command, currentFlightMode, flightModeKnown]() {
         mavsdk::Action action(system);
         const auto report = [self](const QString &message) {
             if (!self) {
@@ -286,28 +341,45 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             mavsdk::Offboard offboard(system);
             const auto setpoint = velocitySetpoint(command);
             const mavsdk::Offboard::VelocityBodyYawspeed zero {};
-            report(QStringLiteral("MAVSDK offboard switch requested for %1").arg(CommandParser::kindToString(command.kind)));
-            for (int i = 0; i < 5; ++i) {
-                const auto seedResult = offboard.set_velocity_body(zero);
-                if (seedResult != mavsdk::Offboard::Result::Success) {
-                    report(QStringLiteral("MAVSDK zero setpoint failed before offboard start: %1").arg(resultToString(seedResult)));
+            const QString commandName = CommandParser::kindToString(command.kind);
+            const QString modeName = flightModeKnown ? flightModeToString(currentFlightMode) : QStringLiteral("Unknown");
+
+            if (flightModeKnown && currentFlightMode == mavsdk::Telemetry::FlightMode::Offboard) {
+                report(QStringLiteral("PX4 already in Offboard; sending %1 setpoints").arg(commandName));
+            } else {
+                report(QStringLiteral("PX4 mode is %1; streaming %2 setpoints before Offboard request").arg(modeName, commandName));
+                for (int i = 0; i < 5; ++i) {
+                    const auto seedResult = offboard.set_velocity_body(setpoint);
+                    if (seedResult != mavsdk::Offboard::Result::Success) {
+                        report(QStringLiteral("MAVSDK setpoint stream failed before Offboard start: %1").arg(resultToString(seedResult)));
+                        return;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+
+                const auto startResult = offboard.start();
+                if (startResult != mavsdk::Offboard::Result::Success) {
+                    report(QStringLiteral("PX4 rejected Offboard switch: %1").arg(resultToString(startResult)));
                     return;
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                const OffboardConfirmationResult confirmation =
+                    waitForOffboardConfirmation(*telemetry, offboard, setpoint, std::chrono::milliseconds(2500));
+                if (!confirmation.confirmed) {
+                    offboard.set_velocity_body(zero);
+                    offboard.stop();
+                    if (confirmation.setpointFailed) {
+                        report(QStringLiteral("MAVSDK setpoint stream failed while waiting for Offboard: %1")
+                                   .arg(resultToString(confirmation.lastSetpointResult)));
+                    } else {
+                        const QString lastMode = confirmation.modeKnown
+                            ? flightModeToString(confirmation.lastMode)
+                            : QStringLiteral("Unknown");
+                        report(QStringLiteral("PX4 did not enter Offboard; last mode %1, movement aborted").arg(lastMode));
+                    }
+                    return;
+                }
+                report(QStringLiteral("PX4 Offboard confirmed; executing %1").arg(commandName));
             }
-
-            const auto startResult = offboard.start();
-            if (startResult != mavsdk::Offboard::Result::Success) {
-                report(QStringLiteral("MAVSDK offboard start failed: %1").arg(resultToString(startResult)));
-                return;
-            }
-            if (!waitForOffboardConfirmation(*telemetry, offboard, zero, std::chrono::milliseconds(2500))) {
-                offboard.set_velocity_body(zero);
-                offboard.stop();
-                report(QStringLiteral("MAVSDK offboard mode confirmation timed out; movement aborted"));
-                return;
-            }
-            report(QStringLiteral("MAVSDK offboard mode confirmed; executing %1").arg(CommandParser::kindToString(command.kind)));
 
             const auto deadline = std::chrono::steady_clock::now()
                 + std::chrono::milliseconds(command.durationMs > 0 ? command.durationMs : 1000);
@@ -325,7 +397,7 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             } else {
                 offboard.stop();
             }
-            report(QStringLiteral("MAVSDK command completed: %1").arg(CommandParser::kindToString(command.kind)));
+            report(QStringLiteral("MAVSDK command completed: %1").arg(commandName));
             return;
         }
 
@@ -438,7 +510,13 @@ void TelemetryService::startMavsdk(const AppConfig &config)
         telemetry->set_rate_battery(1.0);
         telemetry->set_rate_gps_info(1.0);
 
-        telemetry->subscribe_flight_mode([self](mavsdk::Telemetry::FlightMode mode) {
+        std::weak_ptr<MavsdkRuntime> weakRuntime = runtime;
+        telemetry->subscribe_flight_mode([self, weakRuntime](mavsdk::Telemetry::FlightMode mode) {
+            if (auto runtime = weakRuntime.lock()) {
+                std::lock_guard<std::mutex> lock(runtime->mutex);
+                runtime->flightMode = mode;
+                runtime->flightModeKnown = true;
+            }
             if (!self) {
                 return;
             }
@@ -450,6 +528,20 @@ void TelemetryService::startMavsdk(const AppConfig &config)
                     snapshot->connected = true;
                     snapshot->mode = flightModeToString(mode);
                 });
+            }, Qt::QueuedConnection);
+        });
+
+        telemetry->subscribe_status_text([self](mavsdk::Telemetry::StatusText status) {
+            if (!self || !shouldReportStatusText(status.type)) {
+                return;
+            }
+            const QString message = QStringLiteral("PX4 %1: %2")
+                                        .arg(statusTextTypeToString(status.type),
+                                             QString::fromStdString(status.text));
+            QMetaObject::invokeMethod(self, [self, message]() {
+                if (self) {
+                    emit self->statusMessageChanged(message);
+                }
             }, Qt::QueuedConnection);
         });
 
