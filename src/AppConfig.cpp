@@ -147,10 +147,9 @@ AppConfig AppConfig::fromJson(const QJsonObject &object)
     config.maxVerticalMps = doubleValue(object, "max_vertical_mps", config.maxVerticalMps);
     config.maxYawDegS = doubleValue(object, "max_yaw_deg_s", config.maxYawDegS);
     config.maxCommandDurationMs = intValue(object, "max_command_duration_ms", config.maxCommandDurationMs);
-    config.requireHighRiskConfirmation = boolValue(object, "require_high_risk_confirmation",
-                                                   config.requireHighRiskConfirmation);
-    config.mavlinkCommandExecutionEnabled = boolValue(object, "mavlink_command_execution_enabled",
-                                                      config.mavlinkCommandExecutionEnabled);
+    const bool sitlMode = config.runMode == AppRunMode::Px4Sitl;
+    config.requireHighRiskConfirmation = boolValue(object, "require_high_risk_confirmation", !sitlMode);
+    config.mavlinkCommandExecutionEnabled = boolValue(object, "mavlink_command_execution_enabled", sitlMode);
     return config;
 }
 

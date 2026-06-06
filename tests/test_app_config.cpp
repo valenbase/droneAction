@@ -7,6 +7,7 @@ class AppConfigTests : public QObject {
 
 private slots:
     void sitlDefaultsUsePx4Udp();
+    void oldSitlConfigEnablesCommandExecution();
     void realDefaultsDisableCommandExecution();
     void runModeRoundTripsJson();
 };
@@ -31,6 +32,17 @@ void AppConfigTests::realDefaultsDisableCommandExecution()
     QCOMPARE(static_cast<int>(config.runMode), static_cast<int>(AppRunMode::RealAircraft));
     QVERIFY(config.requireHighRiskConfirmation);
     QVERIFY(!config.mavlinkCommandExecutionEnabled);
+}
+
+void AppConfigTests::oldSitlConfigEnablesCommandExecution()
+{
+    const AppConfig parsed = AppConfig::fromJson({
+        {QStringLiteral("run_mode"), QStringLiteral("px4_sitl")},
+        {QStringLiteral("mavlink_url"), QStringLiteral("udp://:14540")}
+    });
+
+    QVERIFY(parsed.mavlinkCommandExecutionEnabled);
+    QVERIFY(!parsed.requireHighRiskConfirmation);
 }
 
 void AppConfigTests::runModeRoundTripsJson()
