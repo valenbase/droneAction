@@ -60,3 +60,9 @@ The workflow at `.github/workflows/build-appimage.yml` builds and tests on `ubun
 ```
 
 See [docs/PROTOCOL.md](docs/PROTOCOL.md) for command aliases and safety behavior.
+
+The `tools/rk3588_command_cli.py` script can simulate an RK3588 sender:
+
+```bash
+python3 tools/rk3588_command_cli.py --host 127.0.0.1 --once "前进 1米每秒 2秒"
+```

@@ -16,6 +16,26 @@ The PC application listens for RK3588 commands over UDP. The default bind addres
 }
 ```
 
+## Test CLI
+
+Use `tools/rk3588_command_cli.py` to simulate an RK3588 sender:
+
+```bash
+python3 tools/rk3588_command_cli.py --host 127.0.0.1 --once "前进 1米每秒 2秒"
+```
+
+Print JSON without sending UDP:
+
+```bash
+python3 tools/rk3588_command_cli.py --dry-run --once "左转 20度/秒 1秒"
+```
+
+Send an exact payload:
+
+```bash
+python3 tools/rk3588_command_cli.py --json --once '{"version":1,"request_id":"rk-test","command":"hold","duration_ms":1000}'
+```
+
 ## Response
 
 ```json
