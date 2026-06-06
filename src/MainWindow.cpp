@@ -58,6 +58,18 @@ QString flightModeBadgeStyle(const QString &mode)
                "padding: 6px 10px; font-size: 13px; font-weight: 700; }")
         .arg(background, text, border);
 }
+
+QString controlAuthorizationStyle(bool enabled)
+{
+    if (enabled) {
+        return QStringLiteral(
+            "QLabel { background: #0d302c; color: #e8fff9; border: 1px solid #23c0a4;"
+            "border-radius: 6px; padding: 8px 10px; font-weight: 700; }");
+    }
+    return QStringLiteral(
+        "QLabel { background: #332313; color: #ffe6b8; border: 1px solid #ffbe5c;"
+        "border-radius: 6px; padding: 8px 10px; font-weight: 700; }");
+}
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -172,8 +184,20 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
     auto *safetyBox = new QGroupBox(QStringLiteral("Safety Gate"));
     setCardStyle(safetyBox);
     auto *safetyLayout = new QVBoxLayout(safetyBox);
-    m_authorizeControl = new QCheckBox(QStringLiteral("Authorize movement commands"));
-    m_authorizeControl->setStyleSheet(QStringLiteral("color: #e8eef4;"));
+    safetyLayout->setSpacing(10);
+    m_controlAuthorizationStatus = new QLabel(safetyBox);
+    m_controlAuthorizationStatus->setAlignment(Qt::AlignCenter);
+    safetyLayout->addWidget(m_controlAuthorizationStatus);
+    m_authorizeControl = new QCheckBox(QStringLiteral("Enable RK3588 movement control"));
+    m_authorizeControl->setToolTip(QStringLiteral("Required for forward/back/left/right/up/down/yaw commands"));
+    m_authorizeControl->setMinimumHeight(42);
+    m_authorizeControl->setStyleSheet(QStringLiteral(
+        "QCheckBox { color: #f6f8fb; font-size: 14px; font-weight: 700; spacing: 12px;"
+        "background: #13202b; border: 1px solid #3a5368; border-radius: 6px; padding: 8px 10px; }"
+        "QCheckBox:hover { background: #182b39; border-color: #5e7c96; }"
+        "QCheckBox::indicator { width: 22px; height: 22px; border-radius: 4px;"
+        "border: 2px solid #ffbe5c; background: #05080c; }"
+        "QCheckBox::indicator:checked { background: #23c0a4; border: 2px solid #8fffea; }"));
     safetyLayout->addWidget(m_authorizeControl);
     auto *confirm = new QPushButton(QStringLiteral("Confirm high-risk action"));
     confirm->setEnabled(false);
@@ -221,6 +245,7 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
     m_safetyGate.setConfig(m_config);
     updateRunModeStatus();
     updateFlightModeDisplay(QStringLiteral("offline"));
+    updateControlAuthorizationDisplay(false);
 }
 
 void MainWindow::startSystems()
@@ -277,6 +302,7 @@ void MainWindow::appendCommand(const QString &sender, const DroneCommand &comman
 void MainWindow::updateSafetyAuthorization(bool enabled)
 {
     m_safetyGate.setControlAuthorized(enabled);
+    updateControlAuthorizationDisplay(enabled);
     appendStatus(enabled ? QStringLiteral("Movement command authorization enabled")
                          : QStringLiteral("Movement command authorization disabled"));
 }
@@ -334,6 +360,17 @@ void MainWindow::updateFlightModeDisplay(const QString &mode)
         m_flightModeBadge->setText(QStringLiteral("Flight: %1").arg(displayMode));
         m_flightModeBadge->setStyleSheet(flightModeBadgeStyle(displayMode));
     }
+}
+
+void MainWindow::updateControlAuthorizationDisplay(bool enabled)
+{
+    if (!m_controlAuthorizationStatus) {
+        return;
+    }
+    m_controlAuthorizationStatus->setText(enabled
+                                              ? QStringLiteral("Movement Control Authorized")
+                                              : QStringLiteral("Movement Control Locked"));
+    m_controlAuthorizationStatus->setStyleSheet(controlAuthorizationStyle(enabled));
 }
 
 QIcon MainWindow::createSettingsIcon() const

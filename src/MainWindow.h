@@ -37,6 +37,7 @@ private:
     void loadConfig();
     void updateRunModeStatus();
     void updateFlightModeDisplay(const QString &mode);
+    void updateControlAuthorizationDisplay(bool enabled);
     QIcon createSettingsIcon() const;
 
     AppConfig m_config;
@@ -47,6 +48,7 @@ private:
 
     QToolButton *m_settingsButton = nullptr;
     QCheckBox *m_authorizeControl = nullptr;
+    QLabel *m_controlAuthorizationStatus = nullptr;
     QLabel *m_linkStatus = nullptr;
     QLabel *m_videoStatus = nullptr;
     QLabel *m_runModeStatus = nullptr;
