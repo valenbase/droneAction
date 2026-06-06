@@ -36,6 +36,7 @@ jobs:
             libxkbcommon-dev \
             ninja-build \
             patchelf \
+            qmake6 \
             qt6-base-dev \
             qt6-base-dev-tools \
             gstreamer1.0-tools \
@@ -59,6 +60,8 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
       - name: Package AppImage
+        env:
+          QMAKE: /usr/lib/qt6/bin/qmake6
         run: scripts/package-appimage.sh
 
       - name: Upload AppImage artifact

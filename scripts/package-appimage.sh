@@ -35,6 +35,25 @@ download_tool "https://github.com/AppImage/appimagetool/releases/download/contin
 export APPIMAGE_EXTRACT_AND_RUN=1
 export PATH="$TOOLS_DIR:$PATH"
 
+if [[ -z "${QMAKE:-}" ]]; then
+    if command -v qmake6 >/dev/null 2>&1; then
+        QMAKE="$(command -v qmake6)"
+    elif [[ -x /usr/lib/qt6/bin/qmake6 ]]; then
+        QMAKE="/usr/lib/qt6/bin/qmake6"
+    elif [[ -x /usr/lib/x86_64-linux-gnu/qt6/bin/qmake6 ]]; then
+        QMAKE="/usr/lib/x86_64-linux-gnu/qt6/bin/qmake6"
+    elif command -v qmake >/dev/null 2>&1; then
+        QMAKE="$(command -v qmake)"
+    else
+        echo "Unable to find qmake/qmake6 for linuxdeploy-plugin-qt" >&2
+        exit 1
+    fi
+fi
+
+export QMAKE
+echo "Using QMAKE=$QMAKE"
+"$QMAKE" -query QT_VERSION
+
 "$TOOLS_DIR/linuxdeploy-x86_64.AppImage" \
     --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/droneaction" \
