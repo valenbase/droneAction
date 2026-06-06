@@ -76,15 +76,34 @@ MainWindow::MainWindow(QWidget *parent)
         "color: #91a4b7; font-size: 20px;"));
     leftLayout->addWidget(videoFrame, 5);
 
-    auto *telemetryGrid = new QGridLayout();
-    telemetryGrid->setSpacing(10);
-    telemetryGrid->addWidget(createTelemetryCard(QStringLiteral("Altitude"), &m_altitude), 0, 0);
-    telemetryGrid->addWidget(createTelemetryCard(QStringLiteral("Ground speed"), &m_groundSpeed), 0, 1);
-    telemetryGrid->addWidget(createTelemetryCard(QStringLiteral("Vertical speed"), &m_verticalSpeed), 0, 2);
-    telemetryGrid->addWidget(createTelemetryCard(QStringLiteral("Heading"), &m_heading), 1, 0);
-    telemetryGrid->addWidget(createTelemetryCard(QStringLiteral("Battery"), &m_battery), 1, 1);
-    telemetryGrid->addWidget(createTelemetryCard(QStringLiteral("GPS"), &m_gps), 1, 2);
-    leftLayout->addLayout(telemetryGrid);
+    auto *instrumentPanel = new QGroupBox(QStringLiteral("Flight Instruments"));
+    setCardStyle(instrumentPanel);
+    auto *instrumentGrid = new QGridLayout(instrumentPanel);
+    instrumentGrid->setSpacing(10);
+    m_attitude = new AttitudeIndicatorWidget(instrumentPanel);
+    m_altitude = new CircularGaugeWidget(QStringLiteral("Altitude"), QStringLiteral("m"), 0.0, 120.0, instrumentPanel);
+    m_altitude->setAccentColor(QColor(255, 190, 92));
+    m_groundSpeed = new CircularGaugeWidget(QStringLiteral("Ground speed"), QStringLiteral("m/s"), 0.0, 20.0, instrumentPanel);
+    m_groundSpeed->setAccentColor(QColor(35, 192, 164));
+    m_verticalSpeed = new CircularGaugeWidget(QStringLiteral("Vertical speed"), QStringLiteral("m/s"), -5.0, 5.0, instrumentPanel);
+    m_verticalSpeed->setAccentColor(QColor(118, 156, 255));
+    m_heading = new CompassWidget(instrumentPanel);
+    m_battery = new CircularGaugeWidget(QStringLiteral("Battery"), QStringLiteral("%"), 0.0, 100.0, instrumentPanel);
+    m_battery->setAccentColor(QColor(93, 214, 112));
+    m_gps = new CircularGaugeWidget(QStringLiteral("GPS"), QStringLiteral("sats"), 0.0, 24.0, instrumentPanel);
+    m_gps->setAccentColor(QColor(96, 204, 255));
+    instrumentGrid->addWidget(m_attitude, 0, 0, 2, 2);
+    instrumentGrid->addWidget(m_altitude, 0, 2);
+    instrumentGrid->addWidget(m_groundSpeed, 0, 3);
+    instrumentGrid->addWidget(m_verticalSpeed, 1, 2);
+    instrumentGrid->addWidget(m_heading, 1, 3);
+    instrumentGrid->addWidget(m_battery, 2, 0);
+    instrumentGrid->addWidget(m_gps, 2, 1);
+    instrumentGrid->setColumnStretch(0, 2);
+    instrumentGrid->setColumnStretch(1, 2);
+    instrumentGrid->setColumnStretch(2, 1);
+    instrumentGrid->setColumnStretch(3, 1);
+    leftLayout->addWidget(instrumentPanel, 3);
 
     auto *right = new QWidget(splitter);
     auto *rightLayout = new QVBoxLayout(right);
@@ -178,12 +197,13 @@ void MainWindow::updateTelemetry(const TelemetrySnapshot &snapshot)
 {
     m_linkStatus->setText(snapshot.connected ? QStringLiteral("live") : QStringLiteral("offline"));
     m_mode->setText(snapshot.mode);
-    m_altitude->setText(QStringLiteral("%1 m").arg(snapshot.altitudeM, 0, 'f', 1));
-    m_groundSpeed->setText(QStringLiteral("%1 m/s").arg(snapshot.groundSpeedMps, 0, 'f', 1));
-    m_verticalSpeed->setText(QStringLiteral("%1 m/s").arg(snapshot.verticalSpeedMps, 0, 'f', 2));
-    m_heading->setText(QStringLiteral("%1 deg").arg(snapshot.headingDeg, 0, 'f', 0));
-    m_battery->setText(QStringLiteral("%1%").arg(snapshot.batteryPercent, 0, 'f', 0));
-    m_gps->setText(QStringLiteral("%1 sats").arg(snapshot.gpsSatellites));
+    m_attitude->setAttitude(snapshot.rollDeg, snapshot.pitchDeg);
+    m_altitude->setValue(snapshot.altitudeM);
+    m_groundSpeed->setValue(snapshot.groundSpeedMps);
+    m_verticalSpeed->setValue(snapshot.verticalSpeedMps);
+    m_heading->setHeading(snapshot.headingDeg);
+    m_battery->setValue(snapshot.batteryPercent);
+    m_gps->setValue(snapshot.gpsSatellites);
 }
 
 void MainWindow::appendStatus(const QString &message)
@@ -204,20 +224,6 @@ void MainWindow::updateSafetyAuthorization(bool enabled)
     m_safetyGate.setControlAuthorized(enabled);
     appendStatus(enabled ? QStringLiteral("Movement command authorization enabled")
                          : QStringLiteral("Movement command authorization disabled"));
-}
-
-QWidget *MainWindow::createTelemetryCard(const QString &title, QLabel **valueLabel)
-{
-    auto *frame = new QFrame();
-    setCardStyle(frame);
-    auto *layout = new QVBoxLayout(frame);
-    auto *name = new QLabel(title);
-    name->setStyleSheet(QStringLiteral("color: #8fb3d9; font-size: 12px;"));
-    *valueLabel = new QLabel(QStringLiteral("--"));
-    (*valueLabel)->setStyleSheet(QStringLiteral("color: #f5f9fc; font-size: 24px; font-weight: 700;"));
-    layout->addWidget(name);
-    layout->addWidget(*valueLabel);
-    return frame;
 }
 
 void MainWindow::loadConfig()

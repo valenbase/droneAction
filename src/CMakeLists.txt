@@ -24,6 +24,8 @@ endif()
 
 qt_add_executable(droneaction
     main.cpp
+    InstrumentWidgets.cpp
+    InstrumentWidgets.h
     MainWindow.cpp
     MainWindow.h
 )

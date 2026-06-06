@@ -13,6 +13,8 @@ struct TelemetrySnapshot {
     double altitudeM = 0.0;
     double groundSpeedMps = 0.0;
     double verticalSpeedMps = 0.0;
+    double rollDeg = 0.0;
+    double pitchDeg = 0.0;
     double headingDeg = 0.0;
     double batteryPercent = 0.0;
     int gpsSatellites = 0;

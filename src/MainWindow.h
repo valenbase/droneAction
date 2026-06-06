@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AppConfig.h"
+#include "InstrumentWidgets.h"
 #include "SafetyGate.h"
 #include "TelemetryService.h"
 #include "UdpCommandServer.h"
@@ -28,7 +29,6 @@ private slots:
     void updateSafetyAuthorization(bool enabled);
 
 private:
-    QWidget *createTelemetryCard(const QString &title, QLabel **valueLabel);
     void loadConfig();
     AppConfig configFromUi() const;
 
@@ -44,12 +44,13 @@ private:
     QCheckBox *m_authorizeControl = nullptr;
     QLabel *m_linkStatus = nullptr;
     QLabel *m_videoStatus = nullptr;
-    QLabel *m_altitude = nullptr;
-    QLabel *m_groundSpeed = nullptr;
-    QLabel *m_verticalSpeed = nullptr;
-    QLabel *m_heading = nullptr;
-    QLabel *m_battery = nullptr;
-    QLabel *m_gps = nullptr;
+    AttitudeIndicatorWidget *m_attitude = nullptr;
+    CircularGaugeWidget *m_altitude = nullptr;
+    CircularGaugeWidget *m_groundSpeed = nullptr;
+    CircularGaugeWidget *m_verticalSpeed = nullptr;
+    CompassWidget *m_heading = nullptr;
+    CircularGaugeWidget *m_battery = nullptr;
+    CircularGaugeWidget *m_gps = nullptr;
     QLabel *m_mode = nullptr;
     QPlainTextEdit *m_eventLog = nullptr;
     QPlainTextEdit *m_commandLog = nullptr;

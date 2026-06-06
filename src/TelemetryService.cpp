@@ -49,6 +49,8 @@ void TelemetryService::updateSimulation()
     m_snapshot.altitudeM = 24.0 + 2.5 * qSin(t);
     m_snapshot.groundSpeedMps = 5.5 + 1.2 * qCos(t / 2.0);
     m_snapshot.verticalSpeedMps = 0.25 * qSin(t * 1.7);
+    m_snapshot.rollDeg = 16.0 * qSin(t * 0.8);
+    m_snapshot.pitchDeg = 7.5 * qSin(t * 1.1);
     m_snapshot.headingDeg = std::fmod(m_snapshot.headingDeg + 2.0, 360.0);
     m_snapshot.batteryPercent = qMax(15.0, m_snapshot.batteryPercent - 0.02);
     emit snapshotChanged(m_snapshot);
