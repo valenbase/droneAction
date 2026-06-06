@@ -58,8 +58,9 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
     m_maxVertical = makeDoubleSpinBox(config.maxVerticalMps, 0.1, 10.0, 0.1, safety);
     m_maxYaw = makeDoubleSpinBox(config.maxYawDegS, 1.0, 180.0, 1.0, safety);
     m_maxDuration = new QSpinBox(safety);
-    m_maxDuration->setRange(100, 60000);
+    m_maxDuration->setRange(100, AppConfig::UiMaxCommandDurationMs);
     m_maxDuration->setSingleStep(100);
+    m_maxDuration->setSuffix(QStringLiteral(" ms"));
     m_maxDuration->setValue(config.maxCommandDurationMs);
     m_requireHighRiskConfirmation = new QCheckBox(QStringLiteral("Require confirmation"), safety);
     m_requireHighRiskConfirmation->setChecked(config.requireHighRiskConfirmation);

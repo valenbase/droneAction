@@ -22,6 +22,7 @@ void AppConfigTests::sitlDefaultsUsePx4Udp()
     QVERIFY(config.videoUrl.isEmpty());
     QVERIFY(config.mavlinkCommandExecutionEnabled);
     QVERIFY(!config.requireHighRiskConfirmation);
+    QCOMPARE(config.maxCommandDurationMs, AppConfig::Px4SitlDefaultMaxCommandDurationMs);
 }
 
 void AppConfigTests::realDefaultsDisableCommandExecution()
@@ -32,6 +33,7 @@ void AppConfigTests::realDefaultsDisableCommandExecution()
     QCOMPARE(static_cast<int>(config.runMode), static_cast<int>(AppRunMode::RealAircraft));
     QVERIFY(config.requireHighRiskConfirmation);
     QVERIFY(!config.mavlinkCommandExecutionEnabled);
+    QCOMPARE(config.maxCommandDurationMs, AppConfig::RealAircraftDefaultMaxCommandDurationMs);
 }
 
 void AppConfigTests::oldSitlConfigEnablesCommandExecution()
@@ -43,6 +45,7 @@ void AppConfigTests::oldSitlConfigEnablesCommandExecution()
 
     QVERIFY(parsed.mavlinkCommandExecutionEnabled);
     QVERIFY(!parsed.requireHighRiskConfirmation);
+    QCOMPARE(parsed.maxCommandDurationMs, AppConfig::Px4SitlDefaultMaxCommandDurationMs);
 }
 
 void AppConfigTests::runModeRoundTripsJson()

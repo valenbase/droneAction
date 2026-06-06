@@ -12,6 +12,15 @@ double capped(double value, double limit)
 {
     return qBound(-limit, value, limit);
 }
+
+int effectiveMaxCommandDurationMs(const AppConfig &config)
+{
+    const int configured = qMax(100, config.maxCommandDurationMs);
+    if (config.runMode == AppRunMode::Px4Sitl) {
+        return qMax(configured, AppConfig::Px4SitlDefaultMaxCommandDurationMs);
+    }
+    return configured;
+}
 }
 
 QString SafetyDecision::statusText() const
@@ -29,7 +38,7 @@ QString SafetyDecision::statusText() const
 
 QJsonObject SafetyDecision::toAck() const
 {
-    return {
+    QJsonObject ack {
         {QStringLiteral("version"), 1},
         {QStringLiteral("request_id"), command.requestId},
         {QStringLiteral("command"), CommandParser::kindToString(command.kind)},
@@ -37,6 +46,16 @@ QJsonObject SafetyDecision::toAck() const
         {QStringLiteral("status"), statusText()},
         {QStringLiteral("reason"), reason}
     };
+    if (command.hasValue) {
+        ack.insert(QStringLiteral("value"), command.value);
+    }
+    if (!command.unit.isEmpty()) {
+        ack.insert(QStringLiteral("unit"), command.unit);
+    }
+    if (command.durationMs > 0) {
+        ack.insert(QStringLiteral("duration_ms"), command.durationMs);
+    }
+    return ack;
 }
 
 void SafetyGate::setConfig(const AppConfig &config)
@@ -87,7 +106,7 @@ SafetyDecision SafetyGate::evaluate(const DroneCommand &input, const TelemetrySn
         if (command.durationMs <= 0) {
             command.durationMs = 1000;
         }
-        command.durationMs = qBound(100, command.durationMs, m_config.maxCommandDurationMs);
+        command.durationMs = qBound(100, command.durationMs, effectiveMaxCommandDurationMs(m_config));
     }
 
     return {SafetyDecisionCode::Accepted, QStringLiteral("command passed safety gate"), command};

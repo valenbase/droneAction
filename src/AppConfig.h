@@ -10,6 +10,10 @@ enum class AppRunMode {
 };
 
 struct AppConfig {
+    static constexpr int RealAircraftDefaultMaxCommandDurationMs = 3000;
+    static constexpr int Px4SitlDefaultMaxCommandDurationMs = 120000;
+    static constexpr int UiMaxCommandDurationMs = 300000;
+
     AppRunMode runMode = AppRunMode::RealAircraft;
     QString mavlinkUrl = QStringLiteral("tcp://192.168.43.1:5760");
     QString videoUrl = QStringLiteral("rtsp://192.168.144.108:554/stream=0");
@@ -19,7 +23,7 @@ struct AppConfig {
     double maxVelocityMps = 2.0;
     double maxVerticalMps = 1.0;
     double maxYawDegS = 45.0;
-    int maxCommandDurationMs = 3000;
+    int maxCommandDurationMs = RealAircraftDefaultMaxCommandDurationMs;
     bool requireHighRiskConfirmation = true;
     bool mavlinkCommandExecutionEnabled = false;
 

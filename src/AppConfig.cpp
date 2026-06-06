@@ -148,6 +148,9 @@ AppConfig AppConfig::fromJson(const QJsonObject &object)
     config.maxYawDegS = doubleValue(object, "max_yaw_deg_s", config.maxYawDegS);
     config.maxCommandDurationMs = intValue(object, "max_command_duration_ms", config.maxCommandDurationMs);
     const bool sitlMode = config.runMode == AppRunMode::Px4Sitl;
+    if (sitlMode && config.maxCommandDurationMs < AppConfig::Px4SitlDefaultMaxCommandDurationMs) {
+        config.maxCommandDurationMs = AppConfig::Px4SitlDefaultMaxCommandDurationMs;
+    }
     config.requireHighRiskConfirmation = boolValue(object, "require_high_risk_confirmation", !sitlMode);
     config.mavlinkCommandExecutionEnabled = boolValue(object, "mavlink_command_execution_enabled", sitlMode);
     return config;
@@ -195,6 +198,7 @@ void AppConfig::applyRunModeDefaults(AppRunMode mode)
         videoUrl.clear();
         udpBindAddress = QStringLiteral("0.0.0.0");
         udpBindPort = 50050;
+        maxCommandDurationMs = Px4SitlDefaultMaxCommandDurationMs;
         requireHighRiskConfirmation = false;
         mavlinkCommandExecutionEnabled = true;
         return;
@@ -204,6 +208,7 @@ void AppConfig::applyRunModeDefaults(AppRunMode mode)
     videoUrl = QStringLiteral("rtsp://192.168.144.108:554/stream=0");
     udpBindAddress = QStringLiteral("0.0.0.0");
     udpBindPort = 50050;
+    maxCommandDurationMs = RealAircraftDefaultMaxCommandDurationMs;
     requireHighRiskConfirmation = true;
     mavlinkCommandExecutionEnabled = false;
 }
