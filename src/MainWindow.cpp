@@ -26,6 +26,38 @@ void setCardStyle(QWidget *widget)
         "QGroupBox { margin-top: 16px; padding: 12px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; color: #8fb3d9; }"));
 }
+
+QString flightModeBadgeStyle(const QString &mode)
+{
+    const QString lower = mode.trimmed().toLower();
+    QString border = QStringLiteral("#30475d");
+    QString background = QStringLiteral("#122232");
+    QString text = QStringLiteral("#e8eef4");
+
+    if (lower == QStringLiteral("offboard")) {
+        border = QStringLiteral("#23c0a4");
+        background = QStringLiteral("#0d302c");
+    } else if (lower == QStringLiteral("offline") || lower == QStringLiteral("unknown")) {
+        border = QStringLiteral("#3b4a58");
+        background = QStringLiteral("#101820");
+        text = QStringLiteral("#91a4b7");
+    } else if (lower.contains(QStringLiteral("land"))
+               || lower.contains(QStringLiteral("takeoff"))
+               || lower.contains(QStringLiteral("return"))) {
+        border = QStringLiteral("#ffbe5c");
+        background = QStringLiteral("#322313");
+    } else if (lower.contains(QStringLiteral("manual"))
+               || lower.contains(QStringLiteral("position"))
+               || lower.contains(QStringLiteral("altitude"))) {
+        border = QStringLiteral("#769cff");
+        background = QStringLiteral("#111f3a");
+    }
+
+    return QStringLiteral(
+               "QLabel { background: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
+               "padding: 6px 10px; font-size: 13px; font-weight: 700; }")
+        .arg(background, text, border);
+}
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -52,6 +84,12 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
     auto *title = new QLabel(QStringLiteral("DroneAction"));
     title->setStyleSheet(QStringLiteral("font-size: 24px; font-weight: 700; color: #f6f8fb;"));
     header->addWidget(title);
+    m_flightModeBadge = new QLabel(root);
+    m_flightModeBadge->setMinimumWidth(170);
+    m_flightModeBadge->setFixedHeight(34);
+    m_flightModeBadge->setAlignment(Qt::AlignCenter);
+    m_flightModeBadge->setToolTip(QStringLiteral("Current PX4 flight mode"));
+    header->addWidget(m_flightModeBadge);
     header->addStretch();
 
     auto *start = new QPushButton(QStringLiteral("Start"));
@@ -128,7 +166,7 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
     statusLayout->addRow(QStringLiteral("Run"), m_runModeStatus);
     statusLayout->addRow(QStringLiteral("Telemetry"), m_linkStatus);
     statusLayout->addRow(QStringLiteral("Video"), m_videoStatus);
-    statusLayout->addRow(QStringLiteral("Mode"), m_mode);
+    statusLayout->addRow(QStringLiteral("Flight mode"), m_mode);
     rightLayout->addWidget(statusBox);
 
     auto *safetyBox = new QGroupBox(QStringLiteral("Safety Gate"));
@@ -182,6 +220,7 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
 
     m_safetyGate.setConfig(m_config);
     updateRunModeStatus();
+    updateFlightModeDisplay(QStringLiteral("offline"));
 }
 
 void MainWindow::startSystems()
@@ -208,7 +247,7 @@ void MainWindow::stopSystems()
 void MainWindow::updateTelemetry(const TelemetrySnapshot &snapshot)
 {
     m_linkStatus->setText(snapshot.connected ? QStringLiteral("live") : QStringLiteral("offline"));
-    m_mode->setText(snapshot.mode);
+    updateFlightModeDisplay(snapshot.mode);
     m_attitude->setAttitude(snapshot.rollDeg, snapshot.pitchDeg);
     m_altitude->setValue(snapshot.altitudeM);
     m_groundSpeed->setValue(snapshot.groundSpeedMps);
@@ -283,6 +322,18 @@ void MainWindow::updateRunModeStatus()
         m_runModeStatus->setText(AppConfig::runModeDisplayName(m_config.runMode));
     }
     setWindowTitle(QStringLiteral("DroneAction - %1").arg(AppConfig::runModeDisplayName(m_config.runMode)));
+}
+
+void MainWindow::updateFlightModeDisplay(const QString &mode)
+{
+    const QString displayMode = mode.trimmed().isEmpty() ? QStringLiteral("Unknown") : mode.trimmed();
+    if (m_mode) {
+        m_mode->setText(displayMode);
+    }
+    if (m_flightModeBadge) {
+        m_flightModeBadge->setText(QStringLiteral("Flight: %1").arg(displayMode));
+        m_flightModeBadge->setStyleSheet(flightModeBadgeStyle(displayMode));
+    }
 }
 
 QIcon MainWindow::createSettingsIcon() const

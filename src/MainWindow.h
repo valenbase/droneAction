@@ -36,6 +36,7 @@ private slots:
 private:
     void loadConfig();
     void updateRunModeStatus();
+    void updateFlightModeDisplay(const QString &mode);
     QIcon createSettingsIcon() const;
 
     AppConfig m_config;
@@ -49,6 +50,7 @@ private:
     QLabel *m_linkStatus = nullptr;
     QLabel *m_videoStatus = nullptr;
     QLabel *m_runModeStatus = nullptr;
+    QLabel *m_flightModeBadge = nullptr;
     AttitudeIndicatorWidget *m_attitude = nullptr;
     CircularGaugeWidget *m_altitude = nullptr;
     CircularGaugeWidget *m_groundSpeed = nullptr;
