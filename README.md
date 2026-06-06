@@ -49,6 +49,8 @@ The workflow at `.github/workflows/build-appimage.yml` builds and tests on `ubun
 
 ## RK3588 UDP Command Protocol
 
+Current environment usage is summarized in [docs/ENVIRONMENT_USAGE.md](docs/ENVIRONMENT_USAGE.md).
+
 ```json
 {
   "version": 1,
