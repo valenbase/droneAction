@@ -68,3 +68,11 @@ The `tools/rk3588_command_cli.py` script can simulate an RK3588 sender:
 ```bash
 python3 tools/rk3588_command_cli.py --host 127.0.0.1 --once "前进 1米每秒 2秒"
 ```
+
+For click-based testing, start the browser control panel:
+
+```bash
+python3 tools/rk3588_command_panel.py --target-host 127.0.0.1
+```
+
+Then open the printed local URL and click the command buttons.

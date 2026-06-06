@@ -24,6 +24,12 @@ Use `tools/rk3588_command_cli.py` to simulate an RK3588 sender:
 python3 tools/rk3588_command_cli.py --host 127.0.0.1 --once "前进 1米每秒 2秒"
 ```
 
+For button-based testing, use the browser panel:
+
+```bash
+python3 tools/rk3588_command_panel.py --target-host 127.0.0.1
+```
+
 Print JSON without sending UDP:
 
 ```bash
