@@ -9,6 +9,8 @@ UdpCommandServer::UdpCommandServer(SafetyGate *safetyGate, TelemetryService *tel
     , m_telemetryService(telemetryService)
 {
     connect(&m_socket, &QUdpSocket::readyRead, this, &UdpCommandServer::readPendingDatagrams);
+    m_pollTimer.setInterval(50);
+    connect(&m_pollTimer, &QTimer::timeout, this, &UdpCommandServer::readPendingDatagrams);
 }
 
 bool UdpCommandServer::start(const AppConfig &config, QString *errorMessage)
@@ -16,19 +18,23 @@ bool UdpCommandServer::start(const AppConfig &config, QString *errorMessage)
     stop();
     m_config = config;
     const QHostAddress bindAddress(config.udpBindAddress);
-    if (!m_socket.bind(bindAddress, config.udpBindPort, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
+    if (!m_socket.bind(bindAddress, config.udpBindPort, QUdpSocket::ReuseAddressHint)) {
         if (errorMessage) {
             *errorMessage = m_socket.errorString();
         }
         return false;
     }
 
-    emit statusChanged(QStringLiteral("RK3588 UDP server listening"));
+    m_pollTimer.start();
+    emit statusChanged(QStringLiteral("RK3588 UDP server listening on %1:%2")
+                           .arg(config.udpBindAddress)
+                           .arg(config.udpBindPort));
     return true;
 }
 
 void UdpCommandServer::stop()
 {
+    m_pollTimer.stop();
     if (m_socket.state() != QAbstractSocket::UnconnectedState) {
         m_socket.close();
         emit statusChanged(QStringLiteral("RK3588 UDP server stopped"));

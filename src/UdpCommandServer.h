@@ -7,6 +7,7 @@
 
 #include <QObject>
 #include <QHostAddress>
+#include <QTimer>
 #include <QUdpSocket>
 
 class UdpCommandServer : public QObject {
@@ -32,6 +33,7 @@ private:
     void sendAck(const QHostAddress &sender, quint16 port, const QJsonObject &ack);
 
     QUdpSocket m_socket;
+    QTimer m_pollTimer;
     AppConfig m_config;
     SafetyGate *m_safetyGate = nullptr;
     TelemetryService *m_telemetryService = nullptr;
