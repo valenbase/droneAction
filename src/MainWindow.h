@@ -17,6 +17,8 @@
 #include <QIcon>
 #include <QToolButton>
 
+class VideoFrameWidget;
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -47,6 +49,7 @@ private:
     UdpCommandServer m_udpServer;
 
     QToolButton *m_settingsButton = nullptr;
+    QPushButton *m_confirmCommand = nullptr;
     QCheckBox *m_authorizeControl = nullptr;
     QLabel *m_controlAuthorizationStatus = nullptr;
     QLabel *m_linkStatus = nullptr;
@@ -61,6 +64,7 @@ private:
     CircularGaugeWidget *m_battery = nullptr;
     CircularGaugeWidget *m_gps = nullptr;
     MapWidget *m_map = nullptr;
+    VideoFrameWidget *m_videoOutput = nullptr;
     QLabel *m_mode = nullptr;
     QPlainTextEdit *m_eventLog = nullptr;
     QPlainTextEdit *m_commandLog = nullptr;

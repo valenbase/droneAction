@@ -88,7 +88,19 @@ bool AppConfig::save(QString *errorMessage) const
         return false;
     }
 
-    file.write(QJsonDocument(toJson()).toJson(QJsonDocument::Indented));
+    if (file.write(QJsonDocument(toJson()).toJson(QJsonDocument::Indented)) < 0) {
+        if (errorMessage) {
+            *errorMessage = file.errorString();
+        }
+        return false;
+    }
+    file.close();
+    if (!QFile::setPermissions(configPath(), QFileDevice::ReadOwner | QFileDevice::WriteOwner)) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral("Cannot secure configuration file permissions");
+        }
+        return false;
+    }
     return true;
 }
 
@@ -147,9 +159,9 @@ AppConfig AppConfig::fromJson(const QJsonObject &object)
     config.maxVerticalMps = doubleValue(object, "max_vertical_mps", config.maxVerticalMps);
     config.maxYawDegS = doubleValue(object, "max_yaw_deg_s", config.maxYawDegS);
     config.maxCommandDurationMs = intValue(object, "max_command_duration_ms", config.maxCommandDurationMs);
-    const bool sitlMode = config.runMode == AppRunMode::Px4Sitl;
-    if (sitlMode && config.maxCommandDurationMs < AppConfig::Px4SitlDefaultMaxCommandDurationMs) {
-        config.maxCommandDurationMs = AppConfig::Px4SitlDefaultMaxCommandDurationMs;
+    const bool sitlMode = config.runMode == AppRunMode::Simulation;
+    if (sitlMode && config.maxCommandDurationMs < AppConfig::SimulationDefaultMaxCommandDurationMs) {
+        config.maxCommandDurationMs = AppConfig::SimulationDefaultMaxCommandDurationMs;
     }
     config.requireHighRiskConfirmation = boolValue(object, "require_high_risk_confirmation", !sitlMode);
     config.mavlinkCommandExecutionEnabled = boolValue(object, "mavlink_command_execution_enabled", sitlMode);
@@ -159,8 +171,8 @@ AppConfig AppConfig::fromJson(const QJsonObject &object)
 QString AppConfig::runModeKey(AppRunMode mode)
 {
     switch (mode) {
-    case AppRunMode::Px4Sitl:
-        return QStringLiteral("px4_sitl");
+    case AppRunMode::Simulation:
+        return QStringLiteral("simulation");
     case AppRunMode::RealAircraft:
         return QStringLiteral("real_aircraft");
     }
@@ -170,7 +182,7 @@ QString AppConfig::runModeKey(AppRunMode mode)
 QString AppConfig::runModeDisplayName(AppRunMode mode)
 {
     switch (mode) {
-    case AppRunMode::Px4Sitl:
+    case AppRunMode::Simulation:
         return QStringLiteral("Simulation");
     case AppRunMode::RealAircraft:
         return QStringLiteral("Real aircraft");
@@ -181,8 +193,10 @@ QString AppConfig::runModeDisplayName(AppRunMode mode)
 AppRunMode AppConfig::runModeFromKey(const QString &key, AppRunMode fallback)
 {
     const QString normalized = key.trimmed().toLower();
-    if (normalized == QStringLiteral("px4_sitl") || normalized == QStringLiteral("sitl")) {
-        return AppRunMode::Px4Sitl;
+    if (normalized == QStringLiteral("simulation")
+        || normalized == QStringLiteral("px4_sitl")
+        || normalized == QStringLiteral("sitl")) {
+        return AppRunMode::Simulation;
     }
     if (normalized == QStringLiteral("real_aircraft") || normalized == QStringLiteral("real")) {
         return AppRunMode::RealAircraft;
@@ -193,19 +207,19 @@ AppRunMode AppConfig::runModeFromKey(const QString &key, AppRunMode fallback)
 void AppConfig::applyRunModeDefaults(AppRunMode mode)
 {
     runMode = mode;
-    if (mode == AppRunMode::Px4Sitl) {
+    if (mode == AppRunMode::Simulation) {
         mavlinkUrl = QStringLiteral("udp://:14540");
         videoUrl.clear();
         udpBindAddress = QStringLiteral("0.0.0.0");
         udpBindPort = 50050;
-        maxCommandDurationMs = Px4SitlDefaultMaxCommandDurationMs;
+        maxCommandDurationMs = SimulationDefaultMaxCommandDurationMs;
         requireHighRiskConfirmation = false;
         mavlinkCommandExecutionEnabled = true;
         return;
     }
 
     mavlinkUrl = QStringLiteral("tcp://192.168.43.1:5760");
-    videoUrl = QStringLiteral("rtsp://192.168.144.108:554/stream=0");
+    videoUrl = QStringLiteral("rtsp://192.168.144.123/stream=0");
     udpBindAddress = QStringLiteral("0.0.0.0");
     udpBindPort = 50050;
     maxCommandDurationMs = RealAircraftDefaultMaxCommandDurationMs;

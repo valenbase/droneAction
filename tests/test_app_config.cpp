@@ -6,23 +6,23 @@ class AppConfigTests : public QObject {
     Q_OBJECT
 
 private slots:
-    void sitlDefaultsUsePx4Udp();
+    void simulationDefaultsEnableCommandExecution();
     void oldSitlConfigEnablesCommandExecution();
     void realDefaultsDisableCommandExecution();
     void runModeRoundTripsJson();
 };
 
-void AppConfigTests::sitlDefaultsUsePx4Udp()
+void AppConfigTests::simulationDefaultsEnableCommandExecution()
 {
     AppConfig config;
-    config.applyRunModeDefaults(AppRunMode::Px4Sitl);
+    config.applyRunModeDefaults(AppRunMode::Simulation);
 
-    QCOMPARE(static_cast<int>(config.runMode), static_cast<int>(AppRunMode::Px4Sitl));
+    QCOMPARE(static_cast<int>(config.runMode), static_cast<int>(AppRunMode::Simulation));
     QCOMPARE(config.mavlinkUrl, QStringLiteral("udp://:14540"));
     QVERIFY(config.videoUrl.isEmpty());
     QVERIFY(config.mavlinkCommandExecutionEnabled);
     QVERIFY(!config.requireHighRiskConfirmation);
-    QCOMPARE(config.maxCommandDurationMs, AppConfig::Px4SitlDefaultMaxCommandDurationMs);
+    QCOMPARE(config.maxCommandDurationMs, AppConfig::SimulationDefaultMaxCommandDurationMs);
 }
 
 void AppConfigTests::realDefaultsDisableCommandExecution()
@@ -31,6 +31,8 @@ void AppConfigTests::realDefaultsDisableCommandExecution()
     config.applyRunModeDefaults(AppRunMode::RealAircraft);
 
     QCOMPARE(static_cast<int>(config.runMode), static_cast<int>(AppRunMode::RealAircraft));
+    QCOMPARE(config.videoUrl,
+             QStringLiteral("rtsp://192.168.144.123/stream=0"));
     QVERIFY(config.requireHighRiskConfirmation);
     QVERIFY(!config.mavlinkCommandExecutionEnabled);
     QCOMPARE(config.maxCommandDurationMs, AppConfig::RealAircraftDefaultMaxCommandDurationMs);
@@ -45,16 +47,16 @@ void AppConfigTests::oldSitlConfigEnablesCommandExecution()
 
     QVERIFY(parsed.mavlinkCommandExecutionEnabled);
     QVERIFY(!parsed.requireHighRiskConfirmation);
-    QCOMPARE(parsed.maxCommandDurationMs, AppConfig::Px4SitlDefaultMaxCommandDurationMs);
+    QCOMPARE(parsed.maxCommandDurationMs, AppConfig::SimulationDefaultMaxCommandDurationMs);
 }
 
 void AppConfigTests::runModeRoundTripsJson()
 {
     AppConfig config;
-    config.applyRunModeDefaults(AppRunMode::Px4Sitl);
+    config.applyRunModeDefaults(AppRunMode::Simulation);
 
     const AppConfig parsed = AppConfig::fromJson(config.toJson());
-    QCOMPARE(static_cast<int>(parsed.runMode), static_cast<int>(AppRunMode::Px4Sitl));
+    QCOMPARE(static_cast<int>(parsed.runMode), static_cast<int>(AppRunMode::Simulation));
     QCOMPARE(parsed.mavlinkUrl, config.mavlinkUrl);
 }
 

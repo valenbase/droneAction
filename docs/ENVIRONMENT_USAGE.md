@@ -8,10 +8,10 @@
 | --- | --- |
 | GitHub 仓库 | `https://github.com/valenbase/droneAction.git` |
 | 本地开发目录 | `/Users/valen/WorkSpace/claudeCodeProjets/chongqing` |
-| 远程 Linux 用户 | `tg` |
-| 远程 Linux 地址 | `192.168.43.27` |
-| 远程部署目录 | `/home/tg/Projects/drone_ws` |
-| 固定 AppImage 路径 | `/home/tg/Projects/drone_ws/dist/droneAction.appimage` |
+| 远程 Linux 用户 | `valen` |
+| 远程 Linux 地址 | `192.168.0.12` |
+| 远程部署目录 | `/home/valen/Projects/drone_ws` |
+| 固定 AppImage 路径 | `/home/valen/Projects/drone_ws/dist/droneAction.appimage` |
 | UDP 控制监听默认端口 | `50050` |
 | 网页控制面板默认端口 | `8765` |
 
@@ -28,8 +28,8 @@ git rev-parse --short HEAD
 远程查看状态：
 
 ```bash
-ssh tg@192.168.43.27
-cd /home/tg/Projects/drone_ws
+ssh valen@192.168.0.12
+cd /home/valen/Projects/drone_ws
 git status --short --branch
 git rev-parse --short HEAD
 ```
@@ -39,11 +39,11 @@ git rev-parse --short HEAD
 ```bash
 rsync -az --delete \
   --exclude build \
-  --exclude build-mavsdk \
   --exclude dist \
+  --exclude AppDir \
   --exclude .appimage-tools \
   /Users/valen/WorkSpace/claudeCodeProjets/chongqing/ \
-  tg@192.168.43.27:/home/tg/Projects/drone_ws/
+  valen@192.168.0.12:/home/valen/Projects/drone_ws/
 ```
 
 不要把生成的 `.AppImage` 或 `.appimage` 文件提交进 Git。
@@ -53,7 +53,7 @@ rsync -az --delete \
 在远程 Linux 桌面环境中运行：
 
 ```bash
-cd /home/tg/Projects/drone_ws
+cd /home/valen/Projects/drone_ws
 ./dist/droneAction.appimage
 ```
 
@@ -61,6 +61,8 @@ cd /home/tg/Projects/drone_ws
 
 - `Simulation`：用于本地仿真测试，默认允许远程命令执行，运动时长上限较长。
 - `Real aircraft`：用于真实飞机，默认更保守，高风险动作需要确认，远程命令执行需要在设置中打开。
+
+应用会从飞控心跳自动选择控制后端。APM/ArduCopter 的 SITL 和真机设置见 [APM_USAGE.md](APM_USAGE.md)。
 
 主界面右上角设置按钮可以配置：
 
@@ -89,7 +91,7 @@ cd /home/tg/Projects/drone_ws
 如果控制面板和 AppImage 都在远程 Linux 上运行：
 
 ```bash
-cd /home/tg/Projects/drone_ws
+cd /home/valen/Projects/drone_ws
 python3 tools/rk3588_command_panel.py --target-host 127.0.0.1
 ```
 
@@ -104,14 +106,14 @@ DroneAction command panel: http://127.0.0.1:8765/
 如果需要从其他电脑访问远程 Linux 上的控制面板：
 
 ```bash
-cd /home/tg/Projects/drone_ws
+cd /home/valen/Projects/drone_ws
 python3 tools/rk3588_command_panel.py --bind 0.0.0.0 --target-host 127.0.0.1
 ```
 
 然后在浏览器打开：
 
 ```text
-http://192.168.43.27:8765/
+http://192.168.0.12:8765/
 ```
 
 面板支持直接点击：
@@ -127,7 +129,7 @@ http://192.168.43.27:8765/
 发送自然语言测试命令：
 
 ```bash
-cd /home/tg/Projects/drone_ws
+cd /home/valen/Projects/drone_ws
 python3 tools/rk3588_command_cli.py --host 127.0.0.1 --once "前进 1米每秒 2秒"
 ```
 
@@ -155,40 +157,33 @@ python3 tools/rk3588_command_cli.py --host 127.0.0.1 --once "降落"
 协议细节见：
 
 ```text
-/home/tg/Projects/drone_ws/docs/PROTOCOL.md
+/home/valen/Projects/drone_ws/docs/PROTOCOL.md
 ```
 
 ## 6. 构建与测试
 
-普通构建：
+当前部署构建启用遥测和远程命令执行支持：
 
 ```bash
-cd /home/tg/Projects/drone_ws
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cd /home/valen/Projects/drone_ws
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DDRONEACTION_ENABLE_MAVSDK=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-带远程命令执行支持的构建：
+APM SITL 完整起飞、前进、降落联调：
 
 ```bash
-cd /home/tg/Projects/drone_ws
-cmake -S . -B build-mavsdk -G Ninja -DCMAKE_BUILD_TYPE=Release -DDRONEACTION_ENABLE_MAVSDK=ON
-cmake --build build-mavsdk
-ctest --test-dir build-mavsdk --output-on-failure
+cd /home/valen/Projects/drone_ws
+build/tests/apm_integration_probe tcp://127.0.0.1:5760
 ```
-
-当前远程机器已经保留两个构建目录：
-
-- `/home/tg/Projects/drone_ws/build`
-- `/home/tg/Projects/drone_ws/build-mavsdk`
 
 通常修改代码后直接执行：
 
 ```bash
-cd /home/tg/Projects/drone_ws
-cmake --build build-mavsdk
-ctest --test-dir build-mavsdk --output-on-failure
+cd /home/valen/Projects/drone_ws
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
 ## 7. 打包 AppImage
@@ -196,8 +191,8 @@ ctest --test-dir build-mavsdk --output-on-failure
 使用带远程命令执行支持的构建目录打包：
 
 ```bash
-cd /home/tg/Projects/drone_ws
-BUILD_DIR=/home/tg/Projects/drone_ws/build-mavsdk scripts/package-appimage.sh
+cd /home/valen/Projects/drone_ws
+BUILD_DIR=/home/valen/Projects/drone_ws/build scripts/package-appimage.sh
 ```
 
 打包脚本行为：
@@ -210,7 +205,7 @@ BUILD_DIR=/home/tg/Projects/drone_ws/build-mavsdk scripts/package-appimage.sh
 检查结果：
 
 ```bash
-ls -lh /home/tg/Projects/drone_ws/dist
+ls -lh /home/valen/Projects/drone_ws/dist
 ```
 
 ## 8. GitHub Actions
@@ -252,7 +247,7 @@ python3 tools/rk3588_command_cli.py --host 127.0.0.1 --once "悬停"
 如果 RK3588 或测试电脑在另一台机器上，`--host` 应使用 PC 端 IP，例如：
 
 ```bash
-python3 tools/rk3588_command_cli.py --host 192.168.43.27 --once "悬停"
+python3 tools/rk3588_command_cli.py --host 192.168.0.12 --once "悬停"
 ```
 
 ### 9.2 返回 `control authorization is disabled`
@@ -265,7 +260,7 @@ python3 tools/rk3588_command_cli.py --host 192.168.43.27 --once "悬停"
 
 ### 9.4 返回 `needs_confirmation`
 
-起飞、降落、返航等高风险动作需要 PC 端人工确认。RK3588 端不要高频自动重发。
+起飞、降落、返航等高风险动作需要 PC 端人工确认。主界面确认按钮会启用 15 秒；确认后才提交动作，并尝试向原发送地址返回第二个最终 ACK。RK3588 端不要高频自动重发。
 
 ### 9.5 运动时间不符合发送值
 
@@ -276,22 +271,22 @@ PC 端会对 `duration_ms` 做安全限幅。实际采用值会在 ACK 的 `dura
 重新打包：
 
 ```bash
-cd /home/tg/Projects/drone_ws
-BUILD_DIR=/home/tg/Projects/drone_ws/build-mavsdk scripts/package-appimage.sh
+cd /home/valen/Projects/drone_ws
+BUILD_DIR=/home/valen/Projects/drone_ws/build scripts/package-appimage.sh
 ```
 
 确认文件时间：
 
 ```bash
-ls -lh /home/tg/Projects/drone_ws/dist/droneAction.appimage
+ls -lh /home/valen/Projects/drone_ws/dist/droneAction.appimage
 ```
 
 ## 10. 推荐交接检查清单
 
 1. `git status --short --branch` 本地和远程都干净。
 2. 本地和远程 `git rev-parse --short HEAD` 一致。
-3. 远程 `build-mavsdk` 构建和测试通过。
-4. `/home/tg/Projects/drone_ws/dist/droneAction.appimage` 存在且时间正确。
+3. 远程 `build` 构建和测试通过。
+4. `/home/valen/Projects/drone_ws/dist/droneAction.appimage` 存在且时间正确。
 5. AppImage 启动后选择正确运行模式。
 6. 主界面打开运动授权。
 7. 网页面板能打开并收到 ACK。

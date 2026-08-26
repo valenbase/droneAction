@@ -1,4 +1,6 @@
 set(DRONEACTION_CORE_SOURCES
+    ArduPilotControl.cpp
+    ArduPilotControl.h
     AppConfig.cpp
     AppConfig.h
     CommandTypes.cpp
@@ -15,7 +17,12 @@ set(DRONEACTION_CORE_SOURCES
 
 add_library(droneaction_core STATIC ${DRONEACTION_CORE_SOURCES})
 target_include_directories(droneaction_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(droneaction_core PUBLIC Qt6::Core Qt6::Network)
+target_link_libraries(droneaction_core PUBLIC
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Network
+    PkgConfig::GSTREAMER
+)
 
 if(DRONEACTION_ENABLE_MAVSDK)
     target_compile_definitions(droneaction_core PUBLIC DRONEACTION_WITH_MAVSDK=1)
@@ -34,6 +41,8 @@ qt_add_executable(droneaction
     RunModeDialog.h
     SettingsDialog.cpp
     SettingsDialog.h
+    VideoFrameWidget.cpp
+    VideoFrameWidget.h
 )
 
 target_link_libraries(droneaction PRIVATE droneaction_core Qt6::Widgets)

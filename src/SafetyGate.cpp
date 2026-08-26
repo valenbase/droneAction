@@ -16,8 +16,8 @@ double capped(double value, double limit)
 int effectiveMaxCommandDurationMs(const AppConfig &config)
 {
     const int configured = qMax(100, config.maxCommandDurationMs);
-    if (config.runMode == AppRunMode::Px4Sitl) {
-        return qMax(configured, AppConfig::Px4SitlDefaultMaxCommandDurationMs);
+    if (config.runMode == AppRunMode::Simulation) {
+        return qMax(configured, AppConfig::SimulationDefaultMaxCommandDurationMs);
     }
     return configured;
 }

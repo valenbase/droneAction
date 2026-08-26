@@ -40,7 +40,7 @@ RunModeDialog::RunModeDialog(AppRunMode currentMode, QWidget *parent)
     auto *buttons = new QHBoxLayout();
     auto *sitl = modeButton(QStringLiteral("Simulation"),
                             QStringLiteral("Local test profile"),
-                            currentMode == AppRunMode::Px4Sitl,
+                            currentMode == AppRunMode::Simulation,
                             this);
     auto *real = modeButton(QStringLiteral("Real aircraft"),
                             QStringLiteral("G12 shared-network profile"),
@@ -50,7 +50,7 @@ RunModeDialog::RunModeDialog(AppRunMode currentMode, QWidget *parent)
     buttons->addWidget(real);
     layout->addLayout(buttons);
 
-    connect(sitl, &QPushButton::clicked, this, [this]() { choose(AppRunMode::Px4Sitl); });
+    connect(sitl, &QPushButton::clicked, this, [this]() { choose(AppRunMode::Simulation); });
     connect(real, &QPushButton::clicked, this, [this]() { choose(AppRunMode::RealAircraft); });
 
     setStyleSheet(QStringLiteral(

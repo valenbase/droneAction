@@ -4,7 +4,7 @@ Test CLI that simulates an RK3588 sending UDP JSON commands to DroneAction.
 
 Examples:
   python3 tools/rk3588_command_cli.py --host 127.0.0.1 --once "forward 1m/s 2s"
-  python3 tools/rk3588_command_cli.py --host 192.168.43.27 --once "前进 1米每秒 2秒"
+  python3 tools/rk3588_command_cli.py --host 192.168.0.12 --once "前进 1米每秒 2秒"
   python3 tools/rk3588_command_cli.py --dry-run --once "左转 20度/秒 1秒"
 """
 

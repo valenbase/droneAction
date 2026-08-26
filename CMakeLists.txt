@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 project(DroneAction
     VERSION 0.1.0
-    DESCRIPTION "PX4/G12 drone monitoring AppImage"
+    DESCRIPTION "G12 drone monitoring and control AppImage"
     LANGUAGES CXX
 )
 
@@ -13,7 +13,13 @@ set(CMAKE_AUTOMOC ON)
 
 option(DRONEACTION_ENABLE_MAVSDK "Link MAVSDK when it is available" OFF)
 
-find_package(Qt6 6.2 REQUIRED COMPONENTS Core Widgets Network Test)
+find_package(Qt6 6.2 REQUIRED COMPONENTS Core Gui Widgets Network Test)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GSTREAMER REQUIRED IMPORTED_TARGET
+    gstreamer-1.0>=1.18
+    gstreamer-app-1.0>=1.18
+    gstreamer-video-1.0>=1.18
+)
 
 if(DRONEACTION_ENABLE_MAVSDK)
     find_package(MAVSDK REQUIRED)

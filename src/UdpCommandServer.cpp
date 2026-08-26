@@ -11,6 +11,11 @@ UdpCommandServer::UdpCommandServer(SafetyGate *safetyGate, TelemetryService *tel
     connect(&m_socket, &QUdpSocket::readyRead, this, &UdpCommandServer::readPendingDatagrams);
     m_pollTimer.setInterval(50);
     connect(&m_pollTimer, &QTimer::timeout, this, &UdpCommandServer::readPendingDatagrams);
+    m_confirmationTimer.setSingleShot(true);
+    m_confirmationTimer.setInterval(15000);
+    connect(&m_confirmationTimer, &QTimer::timeout, this, [this]() {
+        clearPendingConfirmation(QStringLiteral("operator confirmation timed out"), true);
+    });
 }
 
 bool UdpCommandServer::start(const AppConfig &config, QString *errorMessage)
@@ -34,6 +39,7 @@ bool UdpCommandServer::start(const AppConfig &config, QString *errorMessage)
 
 void UdpCommandServer::stop()
 {
+    clearPendingConfirmation(QStringLiteral("command server stopped"), true);
     m_pollTimer.stop();
     if (m_socket.state() != QAbstractSocket::UnconnectedState) {
         m_socket.close();
@@ -44,6 +50,55 @@ void UdpCommandServer::stop()
 bool UdpCommandServer::isRunning() const
 {
     return m_socket.state() == QAbstractSocket::BoundState;
+}
+
+bool UdpCommandServer::hasPendingConfirmation() const
+{
+    return m_pendingConfirmation.active;
+}
+
+void UdpCommandServer::confirmPendingCommand()
+{
+    if (!m_pendingConfirmation.active) {
+        return;
+    }
+
+    const PendingConfirmation pending = m_pendingConfirmation;
+    m_pendingConfirmation = {};
+    m_confirmationTimer.stop();
+    emit confirmationCleared();
+
+    QJsonObject ack {
+        {QStringLiteral("version"), 1},
+        {QStringLiteral("request_id"), pending.command.requestId},
+        {QStringLiteral("command"), CommandParser::kindToString(pending.command.kind)},
+        {QStringLiteral("accepted"), false},
+        {QStringLiteral("status"), QStringLiteral("rejected")},
+        {QStringLiteral("reason"), QStringLiteral("operator confirmed but execution was not queued")}
+    };
+
+    const CommandExecutionResult execution = m_telemetryService->executeCommand(pending.command);
+    const bool queued = execution.status == QStringLiteral("queued");
+    ack.insert(QStringLiteral("accepted"), queued);
+    ack.insert(QStringLiteral("status"), queued ? QStringLiteral("accepted") : QStringLiteral("rejected"));
+    ack.insert(QStringLiteral("reason"), queued
+                   ? QStringLiteral("operator confirmed high-risk action")
+                   : execution.reason);
+    ack.insert(QStringLiteral("execution_status"), execution.status);
+    ack.insert(QStringLiteral("execution_reason"), execution.reason);
+    if (pending.command.hasValue) {
+        ack.insert(QStringLiteral("value"), pending.command.value);
+    }
+    if (!pending.command.unit.isEmpty()) {
+        ack.insert(QStringLiteral("unit"), pending.command.unit);
+    }
+
+    sendAck(pending.senderAddress, pending.senderPort, ack);
+    emit statusChanged(queued
+                           ? QStringLiteral("Confirmed command queued: %1")
+                                 .arg(CommandParser::kindToString(pending.command.kind))
+                           : QStringLiteral("Confirmed command rejected: %1")
+                                 .arg(execution.reason));
 }
 
 void UdpCommandServer::readPendingDatagrams()
@@ -85,6 +140,16 @@ void UdpCommandServer::readPendingDatagrams()
             ack.insert(QStringLiteral("execution_status"), execution.status);
             ack.insert(QStringLiteral("execution_reason"), execution.reason);
             emit statusChanged(QStringLiteral("Command execution %1: %2").arg(execution.status, execution.reason));
+        } else if (decision.code == SafetyDecisionCode::NeedsConfirmation) {
+            clearPendingConfirmation(QStringLiteral("superseded by a newer confirmation request"), true);
+            m_pendingConfirmation.active = true;
+            m_pendingConfirmation.senderAddress = senderAddress;
+            m_pendingConfirmation.senderPort = datagram.senderPort();
+            m_pendingConfirmation.command = decision.command;
+            m_confirmationTimer.start();
+            emit confirmationPending(CommandParser::kindToString(decision.command.kind));
+            emit statusChanged(QStringLiteral("Operator confirmation requested for %1")
+                                   .arg(CommandParser::kindToString(decision.command.kind)));
         }
         sendAck(senderAddress, datagram.senderPort(), ack);
     }
@@ -102,4 +167,27 @@ void UdpCommandServer::sendAck(const QHostAddress &sender, quint16 port, const Q
 {
     const QByteArray payload = QJsonDocument(ack).toJson(QJsonDocument::Compact);
     m_socket.writeDatagram(payload, sender, port);
+}
+
+void UdpCommandServer::clearPendingConfirmation(const QString &reason, bool notifySender)
+{
+    if (!m_pendingConfirmation.active) {
+        return;
+    }
+
+    const PendingConfirmation pending = m_pendingConfirmation;
+    m_pendingConfirmation = {};
+    m_confirmationTimer.stop();
+    if (notifySender && m_socket.state() == QAbstractSocket::BoundState) {
+        sendAck(pending.senderAddress, pending.senderPort, {
+            {QStringLiteral("version"), 1},
+            {QStringLiteral("request_id"), pending.command.requestId},
+            {QStringLiteral("command"), CommandParser::kindToString(pending.command.kind)},
+            {QStringLiteral("accepted"), false},
+            {QStringLiteral("status"), QStringLiteral("rejected")},
+            {QStringLiteral("reason"), reason}
+        });
+    }
+    emit confirmationCleared();
+    emit statusChanged(QStringLiteral("Pending command cleared: %1").arg(reason));
 }

@@ -13,10 +13,14 @@ The default shared telemetry endpoint is `tcp://192.168.43.1:5760`.
 The default C10Pro/network camera RTSP endpoint is:
 
 ```text
-rtsp://192.168.144.108:554/stream=0
+rtsp://<user>:<password>@192.168.144.123/stream=0
 ```
 
 For third-party cameras, configure the camera gateway as described by Skydroid and update `video_url` in the application settings.
+
+The desktop application uses the UDP transport by default with a 50 ms receive buffer. Frames that arrive
+late or remain queued behind a newer frame are discarded, and a stalled stream is reconnected automatically.
+The camera should use H.264 or H.265 with a short GOP for the lowest end-to-end delay.
 
 ## Build Outputs
 

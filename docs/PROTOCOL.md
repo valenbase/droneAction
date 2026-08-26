@@ -10,7 +10,7 @@
 - 编码：UTF-8
 - 数据格式：单个 UDP datagram 内包含一个 JSON object
 - 推荐 datagram 大小：小于 `4096` 字节
-- ACK：PC 端收到每条 datagram 后，会向 datagram 的源 IP 和源端口返回一个 UDP JSON ACK
+- ACK：PC 端收到每条 datagram 后，会向 datagram 的源 IP 和源端口返回一个 UDP JSON ACK。需要人工确认的动作在确认、超时或被替换后还会发送第二个最终 ACK
 
 RK3588 端建议每条指令都等待 ACK。当前 ACK 代表“收到并完成安全检查/入队”，不是动作完成回执。
 
@@ -171,6 +171,23 @@ RK3588 端建议统一发送英文规范命令。中文别名仅用于人工测�
 
 RK3588 端收到 `needs_confirmation` 时，不应自动重发同一指令刷屏，应等待人工确认或业务侧重新触发。
 
+PC 端会保存最新一条待确认指令 15 秒。操作员在界面确认后，PC 会向原发送地址再发一个最终 ACK；成功提交时示例：
+
+```json
+{
+  "version": 1,
+  "request_id": "rk-000003",
+  "command": "takeoff",
+  "accepted": true,
+  "status": "accepted",
+  "reason": "operator confirmed high-risk action",
+  "execution_status": "queued",
+  "execution_reason": "command queued for execution"
+}
+```
+
+15 秒未确认或被更新的待确认动作替换时，第二个 ACK 为 `accepted=false`。发送端如果已关闭 UDP socket，可能收不到第二个 ACK，因此动作结果还应结合业务状态或遥测判断。
+
 ### 4.3 预留命令
 
 以下命令当前能被识别，但 v1 未绑定任务，都会被拒绝：
@@ -267,6 +284,8 @@ RK3588: 记录 ACK，等待下一次业务触发
   "timestamp_ms": 1780732801000
 }
 ```
+
+PC 端会根据心跳自动选择控制方式。对于 Guided 控制类型，PC 会先请求并确认模式，再持续发送速度目标；动作期间如果操作员手动切换到其他模式，本次运动会停止，不会自动切回。
 
 ## 7. 示例
 

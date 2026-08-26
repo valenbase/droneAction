@@ -59,7 +59,7 @@ void SafetyGateTests::sitlAllowsLongMovementDuration()
 {
     SafetyGate gate;
     AppConfig config;
-    config.applyRunModeDefaults(AppRunMode::Px4Sitl);
+    config.applyRunModeDefaults(AppRunMode::Simulation);
     gate.setConfig(config);
     gate.setControlAuthorized(true);
 

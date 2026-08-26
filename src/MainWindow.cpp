@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "VideoFrameWidget.h"
 
 #include <QDateTime>
 #include <QFormLayout>
@@ -11,6 +12,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QSplitter>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace {
@@ -124,12 +126,8 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
     auto *leftLayout = new QVBoxLayout(left);
     leftLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto *videoFrame = new QLabel(QStringLiteral("RTSP video surface\nwaiting for stream"));
-    videoFrame->setAlignment(Qt::AlignCenter);
-    videoFrame->setMinimumHeight(360);
-    videoFrame->setStyleSheet(QStringLiteral(
-        "background: #05080c; border: 1px solid #33475b; border-radius: 8px;"
-        "color: #91a4b7; font-size: 20px;"));
+    auto *videoFrame = new VideoFrameWidget(left);
+    m_videoOutput = videoFrame;
     leftLayout->addWidget(videoFrame, 5);
 
     auto *instrumentPanel = new QGroupBox(QStringLiteral("Flight Instruments"));
@@ -199,9 +197,9 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
         "border: 2px solid #ffbe5c; background: #05080c; }"
         "QCheckBox::indicator:checked { background: #23c0a4; border: 2px solid #8fffea; }"));
     safetyLayout->addWidget(m_authorizeControl);
-    auto *confirm = new QPushButton(QStringLiteral("Confirm high-risk action"));
-    confirm->setEnabled(false);
-    safetyLayout->addWidget(confirm);
+    m_confirmCommand = new QPushButton(QStringLiteral("No action awaiting confirmation"));
+    m_confirmCommand->setEnabled(false);
+    safetyLayout->addWidget(m_confirmCommand);
     rightLayout->addWidget(safetyBox);
 
     m_commandLog = new QPlainTextEdit(right);
@@ -232,20 +230,36 @@ MainWindow::MainWindow(const AppConfig &config, QWidget *parent)
     connect(stop, &QPushButton::clicked, this, &MainWindow::stopSystems);
     connect(m_settingsButton, &QToolButton::clicked, this, &MainWindow::openSettings);
     connect(m_authorizeControl, &QCheckBox::toggled, this, &MainWindow::updateSafetyAuthorization);
+    connect(m_confirmCommand, &QPushButton::clicked,
+            &m_udpServer, &UdpCommandServer::confirmPendingCommand);
     connect(&m_telemetry, &TelemetryService::snapshotChanged, this, &MainWindow::updateTelemetry);
     connect(&m_telemetry, &TelemetryService::statusMessageChanged, this, &MainWindow::appendStatus);
     connect(&m_video, &VideoService::statusChanged, m_videoStatus, &QLabel::setText);
+    connect(&m_video, &VideoService::frameReady, m_videoOutput, &VideoFrameWidget::setFrame);
     connect(&m_udpServer, &UdpCommandServer::statusChanged, this, &MainWindow::appendStatus);
     connect(&m_udpServer, &UdpCommandServer::commandRejected, this,
             [this](const QString &sender, const QString &reason) {
                 m_commandLog->appendPlainText(QStringLiteral("[%1] %2 rejected: %3").arg(now(), sender, reason));
             });
     connect(&m_udpServer, &UdpCommandServer::commandObserved, this, &MainWindow::appendCommand);
+    connect(&m_udpServer, &UdpCommandServer::confirmationPending, this,
+            [this](const QString &commandName) {
+                m_confirmCommand->setText(QStringLiteral("Confirm: %1").arg(commandName));
+                m_confirmCommand->setEnabled(true);
+            });
+    connect(&m_udpServer, &UdpCommandServer::confirmationCleared, this, [this]() {
+        m_confirmCommand->setText(QStringLiteral("No action awaiting confirmation"));
+        m_confirmCommand->setEnabled(false);
+    });
 
     m_safetyGate.setConfig(m_config);
     updateRunModeStatus();
     updateFlightModeDisplay(QStringLiteral("offline"));
     updateControlAuthorizationDisplay(false);
+
+    QTimer::singleShot(0, this, [this]() {
+        m_video.start(m_config.videoUrl);
+    });
 }
 
 void MainWindow::startSystems()
@@ -339,6 +353,9 @@ void MainWindow::openSettings()
         stopSystems();
         startSystems();
         appendStatus(QStringLiteral("Systems restarted with saved settings"));
+    } else {
+        m_video.start(m_config.videoUrl);
+        appendStatus(QStringLiteral("Video restarted with saved settings"));
     }
 }
 

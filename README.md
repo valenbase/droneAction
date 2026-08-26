@@ -1,19 +1,21 @@
 # DroneAction
 
-DroneAction is a Linux AppImage target for a PX4 aircraft using a Skydroid G12 control/video link.
+DroneAction is a Linux AppImage for monitoring and controlling multirotor aircraft through a Skydroid G12 data/video link. It supports both PX4 and ArduPilot/ArduCopter and selects the appropriate control backend after receiving the aircraft heartbeat.
 
 The first milestone provides:
 
 - A Qt6/C++ desktop monitoring console.
-- Startup run-mode selection for PX4 SITL or real aircraft operation.
+- Startup selection between simulation and real-aircraft operation.
 - OpenStreetMap-based GPS map view with an aircraft heading marker and local tile cache.
 - Interface endpoints are edited from the top settings button and stored under the app config directory.
 - Default G12 shared-network endpoints from the local G12 manual:
   - MAVLink telemetry/control: `tcp://192.168.43.1:5760`
-  - RTSP video: `rtsp://192.168.144.108:554/stream=0`
+  - RTSP video: `rtsp://<user>:<password>@192.168.144.123/stream=0`
 - RK3588 UDP JSON command intake on `0.0.0.0:50050`.
-- PX4 SITL defaults use MAVLink `udp://:14540` and disable RTSP video.
-- MAVSDK command execution is enabled by default for PX4 SITL and disabled by default for real-aircraft mode.
+- Low-latency RTSP video using a 50 ms UDP jitter buffer, late-frame dropping, and automatic reconnect.
+- Simulation defaults use `udp://:14540`; ArduCopter SITL can be selected in Settings with `tcp://127.0.0.1:5760`.
+- Command execution is enabled by default for simulation and disabled by default for a new real-aircraft profile.
+- ArduCopter movement uses a closed-loop Guided workflow: request mode, confirm mode from heartbeat, then stream body-frame velocity targets. Takeoff confirms Guided and motor arm before sending the takeoff target.
 - A safety gate for movement/high-risk commands.
 - GitHub Actions packaging for `x86_64` AppImage releases.
 
@@ -25,7 +27,16 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Local builds require Qt6, CMake, Ninja, and a C++20 compiler. MAVSDK can be enabled with:
+Local builds require Qt6, GStreamer 1.18 or newer (core, app, video, RTSP and codec plugins),
+CMake, Ninja, pkg-config, and a C++20 compiler. On Ubuntu 22.04, install the video build packages with:
+
+```bash
+sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
+```
+
+MAVSDK can be enabled with:
 
 ```bash
 cmake -S . -B build -G Ninja -DDRONEACTION_ENABLE_MAVSDK=ON
@@ -64,6 +75,7 @@ Current environment usage is summarized in [docs/ENVIRONMENT_USAGE.md](docs/ENVI
 ```
 
 See [docs/PROTOCOL.md](docs/PROTOCOL.md) for command aliases and safety behavior.
+See [docs/APM_USAGE.md](docs/APM_USAGE.md) for ArduCopter SITL and real-aircraft setup.
 
 The `tools/rk3588_command_cli.py` script can simulate an RK3588 sender:
 

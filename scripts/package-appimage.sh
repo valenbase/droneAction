@@ -29,6 +29,8 @@ download_tool "https://github.com/linuxdeploy/linuxdeploy/releases/download/cont
     "linuxdeploy-x86_64.AppImage"
 download_tool "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage" \
     "linuxdeploy-plugin-qt-x86_64.AppImage"
+download_tool "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gstreamer/master/linuxdeploy-plugin-gstreamer.sh" \
+    "linuxdeploy-plugin-gstreamer.sh"
 download_tool "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" \
     "appimagetool-x86_64.AppImage"
 
@@ -66,7 +68,8 @@ fi
     --executable "$APPDIR/usr/bin/droneaction" \
     --desktop-file "$APPDIR/usr/share/applications/com.valenbase.DroneAction.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/scalable/apps/com.valenbase.DroneAction.svg" \
-    --plugin qt
+    --plugin qt \
+    --plugin gstreamer
 
 ARCH=x86_64 "$TOOLS_DIR/appimagetool-x86_64.AppImage" \
     "${APPIMAGETOOL_ARGS[@]}" \
