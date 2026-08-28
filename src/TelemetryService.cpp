@@ -517,13 +517,20 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
                     MAV_CMD_DO_SET_MODE,
                     static_cast<float>(MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
                     static_cast<float>(ArduPilotControl::CopterGuidedMode));
-                if (modeResult != mavsdk::MavlinkPassthrough::Result::Success) {
+                const bool modeAckTimedOut =
+                    modeResult == mavsdk::MavlinkPassthrough::Result::CommandTimeout;
+                if (modeResult != mavsdk::MavlinkPassthrough::Result::Success && !modeAckTimedOut) {
                     report(QStringLiteral("Aircraft rejected guided control: %1").arg(resultToString(modeResult)));
                     return false;
                 }
+                if (modeAckTimedOut) {
+                    report(QStringLiteral("Guided control response timed out; checking aircraft mode"));
+                }
 
-                if (!waitForState(guidedModeKnown, std::chrono::milliseconds(3000))) {
-                    report(QStringLiteral("Guided control was not confirmed; command aborted"));
+                if (!waitForState(guidedModeKnown, std::chrono::milliseconds(5000))) {
+                    report(modeAckTimedOut
+                               ? QStringLiteral("Guided control was not confirmed after the response timeout; command aborted")
+                               : QStringLiteral("Guided control was not confirmed; command aborted"));
                     return false;
                 }
                 report(QStringLiteral("Guided control confirmed"));
@@ -594,16 +601,23 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
                     report(QStringLiteral("Requesting motor arm"));
                     const auto armResult = sendCommandLong(
                         *passthrough, MAV_CMD_COMPONENT_ARM_DISARM, 1.0f);
-                    if (armResult != mavsdk::MavlinkPassthrough::Result::Success) {
+                    const bool armAckTimedOut =
+                        armResult == mavsdk::MavlinkPassthrough::Result::CommandTimeout;
+                    if (armResult != mavsdk::MavlinkPassthrough::Result::Success && !armAckTimedOut) {
                         report(QStringLiteral("Arm rejected: %1").arg(resultToString(armResult)));
                         return;
+                    }
+                    if (armAckTimedOut) {
+                        report(QStringLiteral("Arm response timed out; checking aircraft state"));
                     }
                     const auto armedPredicate = [runtime]() {
                         return runtime->heartbeatModeKnown
                             && (runtime->baseMode & MAV_MODE_FLAG_SAFETY_ARMED) != 0;
                     };
-                    if (!waitForState(armedPredicate, std::chrono::milliseconds(4000))) {
-                        report(QStringLiteral("Motor arm was not confirmed; takeoff aborted"));
+                    if (!waitForState(armedPredicate, std::chrono::milliseconds(5000))) {
+                        report(armAckTimedOut
+                                   ? QStringLiteral("Motor arm was not confirmed after the response timeout; takeoff aborted")
+                                   : QStringLiteral("Motor arm was not confirmed; takeoff aborted"));
                         return;
                     }
                     report(QStringLiteral("Motor arm confirmed"));
@@ -616,6 +630,10 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
                     command.hasValue && command.value > 0.0 ? qBound(1.0, command.value, 120.0) : 2.5);
                 const auto takeoffResult = sendCommandLong(
                     *passthrough, MAV_CMD_NAV_TAKEOFF, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, altitudeM);
+                if (takeoffResult == mavsdk::MavlinkPassthrough::Result::CommandTimeout) {
+                    report(QStringLiteral("Takeoff response timed out; verify aircraft climb state"));
+                    return;
+                }
                 if (takeoffResult != mavsdk::MavlinkPassthrough::Result::Success) {
                     report(QStringLiteral("Takeoff rejected: %1").arg(resultToString(takeoffResult)));
                     return;
