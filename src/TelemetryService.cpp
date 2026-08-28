@@ -274,6 +274,26 @@ mavsdk::MavlinkPassthrough::Result sendCommandLong(mavsdk::MavlinkPassthrough &p
     });
 }
 
+mavsdk::MavlinkPassthrough::Result sendSetModeMessage(
+    mavsdk::MavlinkPassthrough &passthrough,
+    std::uint32_t customMode)
+{
+    const std::uint8_t targetSystem = passthrough.get_target_sysid();
+    return passthrough.queue_message(
+        [targetSystem, customMode](MavlinkAddress address, std::uint8_t channel) {
+            mavlink_message_t message {};
+            mavlink_msg_set_mode_pack_chan(
+                address.system_id,
+                address.component_id,
+                channel,
+                &message,
+                targetSystem,
+                MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+                customMode);
+            return message;
+        });
+}
+
 mavsdk::MavlinkPassthrough::Result sendBodyVelocity(
     mavsdk::MavlinkPassthrough &passthrough,
     const ArduPilotControl::BodyVelocityTarget &target)
@@ -496,6 +516,7 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
                 return commandStillActive() && predicate();
             };
             const auto ensureGuided = [runtime,
+                                       telemetry,
                                        passthrough,
                                        &report,
                                        &guidedModeKnown,
@@ -524,10 +545,36 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
                     return false;
                 }
                 if (modeAckTimedOut) {
-                    report(QStringLiteral("Guided control response timed out; checking aircraft mode"));
+                    bool guidedConfirmed = false;
+                    {
+                        std::lock_guard<std::mutex> lock(runtime->mutex);
+                        guidedConfirmed = guidedModeKnown();
+                    }
+                    if (!guidedConfirmed && commandStillActive()) {
+                        report(QStringLiteral("Guided control response timed out; retrying a compatible mode request"));
+                        const auto retryResult = sendSetModeMessage(
+                            *passthrough, ArduPilotControl::CopterGuidedMode);
+                        if (retryResult != mavsdk::MavlinkPassthrough::Result::Success) {
+                            report(QStringLiteral("Compatible mode request failed: %1")
+                                       .arg(resultToString(retryResult)));
+                        }
+                    }
                 }
 
                 if (!waitForState(guidedModeKnown, std::chrono::milliseconds(5000))) {
+                    if (telemetry) {
+                        const auto health = telemetry->health();
+                        report(QStringLiteral(
+                                   "Aircraft readiness: local position %1; global position %2; home %3; armable %4")
+                                   .arg(health.is_local_position_ok ? QStringLiteral("ready")
+                                                                    : QStringLiteral("not ready"))
+                                   .arg(health.is_global_position_ok ? QStringLiteral("ready")
+                                                                     : QStringLiteral("not ready"))
+                                   .arg(health.is_home_position_ok ? QStringLiteral("ready")
+                                                                   : QStringLiteral("not ready"))
+                                   .arg(health.is_armable ? QStringLiteral("ready")
+                                                          : QStringLiteral("not ready")));
+                    }
                     report(modeAckTimedOut
                                ? QStringLiteral("Guided control was not confirmed after the response timeout; command aborted")
                                : QStringLiteral("Guided control was not confirmed; command aborted"));
