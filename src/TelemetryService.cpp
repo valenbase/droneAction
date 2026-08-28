@@ -69,6 +69,14 @@ QString resultToString(Result result)
     return QString::fromStdString(stream.str());
 }
 
+mavsdk::Mavsdk::Configuration groundStationConfiguration()
+{
+    mavsdk::Mavsdk::Configuration configuration {mavsdk::ComponentType::GroundStation};
+    configuration.set_system_id(255);
+    configuration.set_component_id(MAV_COMP_ID_ONBOARD_COMPUTER);
+    return configuration;
+}
+
 QString flightModeToString(mavsdk::Telemetry::FlightMode mode)
 {
     switch (mode) {
@@ -337,7 +345,7 @@ mavsdk::MavlinkPassthrough::Result sendBodyVelocity(
 
 struct TelemetryService::MavsdkRuntime {
 #ifdef DRONEACTION_WITH_MAVSDK
-    mavsdk::Mavsdk mavsdk {mavsdk::Mavsdk::Configuration{mavsdk::ComponentType::GroundStation}};
+    mavsdk::Mavsdk mavsdk {groundStationConfiguration()};
     std::shared_ptr<mavsdk::System> system;
     std::shared_ptr<mavsdk::Telemetry> telemetry;
     std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough;
