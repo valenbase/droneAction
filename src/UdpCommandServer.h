@@ -6,7 +6,9 @@
 #include "TelemetryService.h"
 
 #include <QObject>
+#include <QHash>
 #include <QHostAddress>
+#include <QSet>
 #include <QTimer>
 #include <QUdpSocket>
 
@@ -36,6 +38,7 @@ private slots:
 
 private:
     bool senderAllowed(const QHostAddress &sender) const;
+    bool commandOrderAccepted(const QHostAddress &sender, const DroneCommand &command, QString *reason);
     void sendAck(const QHostAddress &sender, quint16 port, const QJsonObject &ack);
     void clearPendingConfirmation(const QString &reason, bool notifySender);
 
@@ -46,11 +49,18 @@ private:
         DroneCommand command;
     };
 
+    struct SenderSequenceState {
+        QString activeSessionId;
+        quint64 lastSequence = 0;
+        QSet<QString> retiredSessionIds;
+    };
+
     QUdpSocket m_socket;
     QTimer m_pollTimer;
     QTimer m_confirmationTimer;
     AppConfig m_config;
     PendingConfirmation m_pendingConfirmation;
+    QHash<QString, SenderSequenceState> m_senderSequenceStates;
     SafetyGate *m_safetyGate = nullptr;
     TelemetryService *m_telemetryService = nullptr;
 };

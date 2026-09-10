@@ -13,8 +13,10 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import select
 import socket
 import sys
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -24,6 +26,11 @@ from typing import Optional
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 50050
 DEFAULT_DURATION_MS = 1000
+DEFAULT_STREAM_HZ = 10.0
+STREAM_COMMANDS = {
+    "forward", "backward", "back", "left", "right", "up", "down",
+    "yaw_left", "yaw_right", "turn_left", "turn_right",
+}
 
 
 class CommandParseError(ValueError):
@@ -197,6 +204,99 @@ def send_udp(payload: dict, host: str, port: int, timeout: float, wait_ack: bool
     return json.loads(response.decode("utf-8"))
 
 
+def ack_accepted(ack: Optional[dict]) -> bool:
+    return bool(ack and (ack.get("accepted") or ack.get("status") == "needs_confirmation"))
+
+
+def send_movement_stream(payload: dict, host: str, port: int, timeout: float,
+                         wait_ack: bool, stream_hz: float = DEFAULT_STREAM_HZ,
+                         stop_event: Optional[threading.Event] = None) -> tuple[Optional[dict], int, Optional[dict]]:
+    if stream_hz <= 0:
+        raise ValueError("stream_hz must be greater than 0")
+
+    duration_ms = max(100, int(payload.get("duration_ms") or DEFAULT_DURATION_MS))
+    interval = 1.0 / stream_hz
+    deadline = time.monotonic() + duration_ms / 1000.0
+    base_request_id = str(payload.get("request_id") or f"rk-{uuid.uuid4().hex[:8]}")
+    session_id = f"test-{uuid.uuid4().hex[:8]}"
+    first_ack: Optional[dict] = None
+    packet_count = 0
+    next_send = time.monotonic()
+
+    def receive_available(sock: socket.socket, wait_seconds: float) -> list[dict]:
+        if wait_seconds < 0:
+            wait_seconds = 0
+        readable, _, _ = select.select([sock], [], [], wait_seconds)
+        if not readable:
+            return []
+
+        acknowledgements = []
+        while True:
+            try:
+                response, _ = sock.recvfrom(4096)
+            except BlockingIOError:
+                break
+            acknowledgements.append(json.loads(response.decode("utf-8")))
+        return acknowledgements
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.setblocking(False)
+        while (packet_count == 0 or time.monotonic() < deadline) and not (stop_event and stop_event.is_set()):
+            now = time.monotonic()
+            if now < next_send:
+                wait_seconds = min(next_send, deadline) - now
+                if wait_ack:
+                    for ack in receive_available(sock, wait_seconds):
+                        if first_ack is None:
+                            first_ack = ack
+                        if not ack_accepted(ack):
+                            return ack, packet_count, None
+                elif wait_seconds > 0:
+                    time.sleep(wait_seconds)
+                continue
+
+            packet_count += 1
+            update = dict(payload)
+            update["request_id"] = f"{base_request_id}-{packet_count}"
+            update["session_id"] = session_id
+            update["sequence"] = packet_count
+            update["timestamp_ms"] = int(time.time() * 1000)
+            data = json.dumps(update, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            sock.sendto(data, (host, port))
+            next_send = max(next_send + interval, time.monotonic())
+
+        if wait_ack:
+            for ack in receive_available(sock, 0):
+                if first_ack is None:
+                    first_ack = ack
+                if not ack_accepted(ack):
+                    return ack, packet_count, None
+
+        hold = {
+            "version": 1,
+            "request_id": f"{base_request_id}-hold",
+            "session_id": session_id,
+            "sequence": packet_count + 1,
+            "command": "hold",
+            "timestamp_ms": int(time.time() * 1000),
+        }
+        data = json.dumps(hold, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        sock.sendto(data, (host, port))
+        hold_ack = None
+        if wait_ack:
+            ack_deadline = time.monotonic() + timeout
+            while hold_ack is None and time.monotonic() < ack_deadline:
+                for ack in receive_available(sock, ack_deadline - time.monotonic()):
+                    if first_ack is None:
+                        first_ack = ack
+                    if ack.get("request_id") == hold["request_id"]:
+                        hold_ack = ack
+                        break
+            if hold_ack is None:
+                raise socket.timeout
+    return first_ack, packet_count, hold_ack
+
+
 def print_payload(label: str, payload: dict) -> None:
     print(f"{label}:")
     print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -216,8 +316,23 @@ def run_once(args: argparse.Namespace, text: str) -> int:
     if args.dry_run:
         return 0
 
+    hold_ack = None
     try:
-        ack = send_udp(payload, args.host, args.port, args.timeout, not args.no_ack)
+        command = str(payload.get("command", "")).strip().lower()
+        if command in STREAM_COMMANDS and not args.single_datagram:
+            ack, packet_count, hold_ack = send_movement_stream(
+                payload,
+                args.host,
+                args.port,
+                args.timeout,
+                not args.no_ack,
+                args.stream_hz,
+            )
+            print(f"stream: {packet_count} movement updates at {args.stream_hz:g} Hz")
+            if hold_ack is not None:
+                print_payload("hold_ack", hold_ack)
+        else:
+            ack = send_udp(payload, args.host, args.port, args.timeout, not args.no_ack)
     except socket.timeout:
         print(f"ACK timeout after {args.timeout:g}s", file=sys.stderr)
         return 1
@@ -230,7 +345,8 @@ def run_once(args: argparse.Namespace, text: str) -> int:
 
     if ack is not None:
         print_payload("ack", ack)
-        return 0 if ack.get("accepted") or ack.get("status") == "needs_confirmation" else 2
+        stream_safely_stopped = hold_ack is None or ack_accepted(hold_ack)
+        return 0 if ack_accepted(ack) and stream_safely_stopped else 2
     return 0
 
 
@@ -291,6 +407,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--value", type=float, help="Override value")
     parser.add_argument("--unit", help="Override unit")
     parser.add_argument("--duration-ms", type=int, help="Override duration_ms")
+    parser.add_argument("--stream-hz", type=float, default=DEFAULT_STREAM_HZ,
+                        help=f"Movement update rate, default {DEFAULT_STREAM_HZ:g} Hz")
+    parser.add_argument("--single-datagram", action="store_true",
+                        help="Send movement as one legacy datagram without periodic updates")
     parser.add_argument("--default-speed", type=float, default=0.8, help="Default movement speed in m/s")
     parser.add_argument("--default-yaw-rate", type=float, default=20.0, help="Default yaw rate in deg/s")
     return parser.parse_args(argv)

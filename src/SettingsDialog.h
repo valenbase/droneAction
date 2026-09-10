@@ -31,6 +31,11 @@ private:
     QDoubleSpinBox *m_maxVertical = nullptr;
     QDoubleSpinBox *m_maxYaw = nullptr;
     QSpinBox *m_maxDuration = nullptr;
+    QSpinBox *m_commandStaleTimeout = nullptr;
+    QSpinBox *m_controlExitTimeout = nullptr;
+    QSpinBox *m_controlEntryPrestream = nullptr;
+    QSpinBox *m_modeConfirmationTimeout = nullptr;
+    QSpinBox *m_modeExitConfirmationTimeout = nullptr;
     QCheckBox *m_requireHighRiskConfirmation = nullptr;
     QCheckBox *m_mavlinkCommandExecution = nullptr;
 };

@@ -316,6 +316,7 @@ void MainWindow::appendCommand(const QString &sender, const DroneCommand &comman
 void MainWindow::updateSafetyAuthorization(bool enabled)
 {
     m_safetyGate.setControlAuthorized(enabled);
+    m_telemetry.setControlAuthorized(enabled);
     updateControlAuthorizationDisplay(enabled);
     appendStatus(enabled ? QStringLiteral("Movement command authorization enabled")
                          : QStringLiteral("Movement command authorization disabled"));
@@ -335,6 +336,14 @@ void MainWindow::openSettings()
 {
     SettingsDialog dialog(m_config, this);
     if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    if (m_telemetry.externalControlActive()) {
+        QMessageBox::warning(
+            this,
+            QStringLiteral("Settings"),
+            QStringLiteral("Exit external flight control before applying settings."));
         return;
     }
 

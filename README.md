@@ -16,6 +16,7 @@ The first milestone provides:
 - Simulation defaults use `udp://:14540`; ArduCopter SITL can be selected in Settings with `tcp://127.0.0.1:5760`.
 - Command execution is enabled by default for simulation and disabled by default for a new real-aircraft profile.
 - ArduCopter movement uses a closed-loop Guided workflow: request mode, confirm mode from heartbeat, then stream body-frame velocity targets. Takeoff confirms Guided and motor arm before sending the takeoff target.
+- PX4 movement uses one persistent control session. Incoming UDP movement packets update the target without restarting the flight mode. A configurable two-stage watchdog first sends zero velocity and then exits to Position mode after a longer outage, while maintaining the zero stream until the mode is confirmed.
 - A safety gate for movement/high-risk commands.
 - GitHub Actions packaging for `x86_64` AppImage releases.
 
@@ -66,6 +67,8 @@ Current environment usage is summarized in [docs/ENVIRONMENT_USAGE.md](docs/ENVI
 {
   "version": 1,
   "request_id": "rk-000001",
+  "session_id": "control-20260910-001",
+  "sequence": 1,
   "command": "forward",
   "value": 1.0,
   "unit": "m/s",
@@ -82,6 +85,8 @@ The `tools/rk3588_command_cli.py` script can simulate an RK3588 sender:
 ```bash
 python3 tools/rk3588_command_cli.py --host 127.0.0.1 --once "前进 1米每秒 2秒"
 ```
+
+Movement tests send target updates at 10 Hz for the requested duration, followed by `hold`.
 
 For click-based testing, start the browser control panel:
 

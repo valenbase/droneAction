@@ -71,6 +71,7 @@ cd /home/valen/Projects/drone_ws
 - RK3588 UDP
 - Allowed IPs
 - 最大速度、最大垂直速度、最大偏航角速度、最大指令时长
+- 指令停止、模式退出、进入预发送和模式确认的时间参数
 - 高风险动作确认
 - 远程执行开关
 
@@ -124,6 +125,8 @@ http://192.168.0.12:8765/
 
 界面上可以设置目标地址、目标端口、ACK 超时、运动时长、速度、垂直速度、偏航角速度和起飞高度。每次点击后，右侧会显示 request 和 ACK。
 
+运动按钮会以 `10 Hz` 持续发送目标，并在设定时间结束后发送悬停，不再只发送一个 UDP 数据包。
+
 ## 5. 命令行测试工具
 
 发送自然语言测试命令：
@@ -170,6 +173,8 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DDRONEACTION_ENABLE_MAV
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
+
+2026-09-10 的 Ubuntu 部署与连续控制验证记录见 [VALIDATION_2026-09-10.md](VALIDATION_2026-09-10.md)，包含本机环回测试和 PX4 SIH 起飞、运动、断流退出、降落的复现步骤。
 
 APM SITL 完整起飞、前进、降落联调：
 
@@ -264,7 +269,9 @@ python3 tools/rk3588_command_cli.py --host 192.168.0.12 --once "悬停"
 
 ### 9.5 运动时间不符合发送值
 
-PC 端会对 `duration_ms` 做安全限幅。实际采用值会在 ACK 的 `duration_ms` 中返回，RK3588 端应以 ACK 为准。
+运动目标必须持续刷新。CLI和控制面板默认以 `10 Hz` 发送；真实控制系统也应采用固定发送线程，不能让图像或算法计算阻塞控制更新。
+
+设置窗口中的 `No-update stop delay` 决定断流多久后置零，`No-update mode exit` 决定多久后退出外部控制。`duration_ms` 是单个目标的最长有效期，PC 端仍会做安全限幅并在 ACK 中返回实际值。
 
 ### 9.6 AppImage 不是最新
 

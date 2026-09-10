@@ -4,6 +4,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QMessageBox>
+#include <QScrollArea>
 #include <QVBoxLayout>
 
 namespace {
@@ -24,6 +25,16 @@ QDoubleSpinBox *makeDoubleSpinBox(double value, double minimum, double maximum, 
     spin->setValue(value);
     return spin;
 }
+
+QSpinBox *makeMillisecondSpinBox(int value, int minimum, int maximum, QWidget *parent)
+{
+    auto *spin = new QSpinBox(parent);
+    spin->setRange(minimum, maximum);
+    spin->setSingleStep(100);
+    spin->setSuffix(QStringLiteral(" ms"));
+    spin->setValue(value);
+    return spin;
+}
 }
 
 SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
@@ -32,13 +43,22 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
 {
     setWindowTitle(QStringLiteral("Settings"));
     setModal(true);
-    resize(560, 420);
+    resize(600, 680);
+    setMinimumSize(540, 520);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(16, 16, 16, 16);
     layout->setSpacing(12);
 
-    auto *interfaces = new QGroupBox(QStringLiteral("Interfaces"), this);
+    auto *scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    auto *content = new QWidget(scrollArea);
+    auto *contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(0, 0, 6, 0);
+    contentLayout->setSpacing(12);
+
+    auto *interfaces = new QGroupBox(QStringLiteral("Interfaces"), content);
     setDialogCardStyle(interfaces);
     auto *interfaceForm = new QFormLayout(interfaces);
     m_mavlinkUrl = new QLineEdit(config.mavlinkUrl, interfaces);
@@ -49,19 +69,16 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
     interfaceForm->addRow(QStringLiteral("RTSP"), m_videoUrl);
     interfaceForm->addRow(QStringLiteral("RK3588 UDP"), m_udpBind);
     interfaceForm->addRow(QStringLiteral("Allowed IPs"), m_allowedIps);
-    layout->addWidget(interfaces);
+    contentLayout->addWidget(interfaces);
 
-    auto *safety = new QGroupBox(QStringLiteral("Safety"), this);
+    auto *safety = new QGroupBox(QStringLiteral("Safety"), content);
     setDialogCardStyle(safety);
     auto *safetyForm = new QFormLayout(safety);
     m_maxVelocity = makeDoubleSpinBox(config.maxVelocityMps, 0.1, 30.0, 0.1, safety);
     m_maxVertical = makeDoubleSpinBox(config.maxVerticalMps, 0.1, 10.0, 0.1, safety);
     m_maxYaw = makeDoubleSpinBox(config.maxYawDegS, 1.0, 180.0, 1.0, safety);
-    m_maxDuration = new QSpinBox(safety);
-    m_maxDuration->setRange(100, AppConfig::UiMaxCommandDurationMs);
-    m_maxDuration->setSingleStep(100);
-    m_maxDuration->setSuffix(QStringLiteral(" ms"));
-    m_maxDuration->setValue(config.maxCommandDurationMs);
+    m_maxDuration = makeMillisecondSpinBox(
+        config.maxCommandDurationMs, 100, AppConfig::UiMaxCommandDurationMs, safety);
     m_requireHighRiskConfirmation = new QCheckBox(QStringLiteral("Require confirmation"), safety);
     m_requireHighRiskConfirmation->setChecked(config.requireHighRiskConfirmation);
     m_mavlinkCommandExecution = new QCheckBox(QStringLiteral("Enable command execution"), safety);
@@ -72,7 +89,49 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
     safetyForm->addRow(QStringLiteral("Max duration ms"), m_maxDuration);
     safetyForm->addRow(QStringLiteral("High-risk actions"), m_requireHighRiskConfirmation);
     safetyForm->addRow(QStringLiteral("Remote execution"), m_mavlinkCommandExecution);
-    layout->addWidget(safety);
+    contentLayout->addWidget(safety);
+
+    auto *controlTiming = new QGroupBox(QStringLiteral("Control timing"), content);
+    setDialogCardStyle(controlTiming);
+    auto *timingForm = new QFormLayout(controlTiming);
+    m_commandStaleTimeout = makeMillisecondSpinBox(
+        config.commandStaleTimeoutMs,
+        AppConfig::MinCommandStaleTimeoutMs,
+        AppConfig::MaxCommandStaleTimeoutMs,
+        controlTiming);
+    m_commandStaleTimeout->setToolTip(
+        QStringLiteral("Send zero velocity when no fresh command arrives within this time."));
+    m_controlExitTimeout = makeMillisecondSpinBox(
+        config.controlExitTimeoutMs,
+        AppConfig::MinControlExitTimeoutMs,
+        AppConfig::MaxControlExitTimeoutMs,
+        controlTiming);
+    m_controlExitTimeout->setToolTip(
+        QStringLiteral("Leave external control when the command stream remains unavailable."));
+    m_controlEntryPrestream = makeMillisecondSpinBox(
+        config.controlEntryPrestreamMs,
+        AppConfig::MinControlEntryPrestreamMs,
+        AppConfig::MaxControlEntryPrestreamMs,
+        controlTiming);
+    m_modeConfirmationTimeout = makeMillisecondSpinBox(
+        config.modeConfirmationTimeoutMs,
+        AppConfig::MinModeConfirmationTimeoutMs,
+        AppConfig::MaxModeConfirmationTimeoutMs,
+        controlTiming);
+    m_modeExitConfirmationTimeout = makeMillisecondSpinBox(
+        config.modeExitConfirmationTimeoutMs,
+        AppConfig::MinModeConfirmationTimeoutMs,
+        AppConfig::MaxModeConfirmationTimeoutMs,
+        controlTiming);
+    timingForm->addRow(QStringLiteral("No-update stop delay"), m_commandStaleTimeout);
+    timingForm->addRow(QStringLiteral("No-update mode exit"), m_controlExitTimeout);
+    timingForm->addRow(QStringLiteral("Entry stream warm-up"), m_controlEntryPrestream);
+    timingForm->addRow(QStringLiteral("Entry confirmation"), m_modeConfirmationTimeout);
+    timingForm->addRow(QStringLiteral("Exit confirmation"), m_modeExitConfirmationTimeout);
+    contentLayout->addWidget(controlTiming);
+    contentLayout->addStretch();
+    scrollArea->setWidget(content);
+    layout->addWidget(scrollArea, 1);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &SettingsDialog::accept);
@@ -80,12 +139,17 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
     layout->addWidget(buttons);
 
     setStyleSheet(QStringLiteral(
-        "QDialog { background: #071018; color: #dbe7f2; font-family: Inter, Arial, sans-serif; }"
+        "QDialog, QScrollArea, QScrollArea > QWidget > QWidget { background: #071018; color: #dbe7f2; "
+        "font-family: Inter, Arial, sans-serif; }"
+        "QLabel { color: #dbe7f2; background: transparent; }"
         "QLineEdit, QSpinBox, QDoubleSpinBox { background: #0c1721; color: #edf4fb; border: 1px solid #30475d; "
         "border-radius: 6px; padding: 6px; }"
         "QPushButton { background: #1d6fbd; color: white; border: 0; border-radius: 6px; padding: 8px 14px; }"
         "QPushButton[text=\"Cancel\"] { background: #253443; }"
-        "QCheckBox { color: #e8eef4; }"));
+        "QCheckBox { color: #e8eef4; spacing: 8px; }"
+        "QCheckBox::indicator { width: 18px; height: 18px; border: 2px solid #8fb3d9; "
+        "border-radius: 3px; background: #071018; }"
+        "QCheckBox::indicator:checked { background: #23c0a4; border-color: #8fffea; }"));
 }
 
 AppConfig SettingsDialog::config() const
@@ -141,6 +205,19 @@ bool SettingsDialog::applyToConfig(AppConfig *config, QString *errorMessage) con
     config->maxVerticalMps = m_maxVertical->value();
     config->maxYawDegS = m_maxYaw->value();
     config->maxCommandDurationMs = m_maxDuration->value();
+    config->commandStaleTimeoutMs = m_commandStaleTimeout->value();
+    config->controlExitTimeoutMs = m_controlExitTimeout->value();
+    config->controlEntryPrestreamMs = m_controlEntryPrestream->value();
+    config->modeConfirmationTimeoutMs = m_modeConfirmationTimeout->value();
+    config->modeExitConfirmationTimeoutMs = m_modeExitConfirmationTimeout->value();
+    if (config->controlExitTimeoutMs <= config->commandStaleTimeoutMs) {
+        if (errorMessage) {
+            *errorMessage = QStringLiteral(
+                "No-update mode exit must be greater than the no-update stop delay.");
+        }
+        return false;
+    }
+    config->normalizeControlTiming();
     config->requireHighRiskConfirmation = m_requireHighRiskConfirmation->isChecked();
     config->mavlinkCommandExecutionEnabled = m_mavlinkCommandExecution->isChecked();
     return true;

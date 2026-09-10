@@ -5,6 +5,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QStandardPaths>
+#include <QtGlobal>
 
 namespace {
 QString configDir()
@@ -121,6 +122,11 @@ QJsonObject AppConfig::toJson() const
         {QStringLiteral("max_vertical_mps"), maxVerticalMps},
         {QStringLiteral("max_yaw_deg_s"), maxYawDegS},
         {QStringLiteral("max_command_duration_ms"), maxCommandDurationMs},
+        {QStringLiteral("command_stale_timeout_ms"), commandStaleTimeoutMs},
+        {QStringLiteral("control_exit_timeout_ms"), controlExitTimeoutMs},
+        {QStringLiteral("control_entry_prestream_ms"), controlEntryPrestreamMs},
+        {QStringLiteral("mode_confirmation_timeout_ms"), modeConfirmationTimeoutMs},
+        {QStringLiteral("mode_exit_confirmation_timeout_ms"), modeExitConfirmationTimeoutMs},
         {QStringLiteral("require_high_risk_confirmation"), requireHighRiskConfirmation},
         {QStringLiteral("mavlink_command_execution_enabled"), mavlinkCommandExecutionEnabled}
     };
@@ -159,6 +165,17 @@ AppConfig AppConfig::fromJson(const QJsonObject &object)
     config.maxVerticalMps = doubleValue(object, "max_vertical_mps", config.maxVerticalMps);
     config.maxYawDegS = doubleValue(object, "max_yaw_deg_s", config.maxYawDegS);
     config.maxCommandDurationMs = intValue(object, "max_command_duration_ms", config.maxCommandDurationMs);
+    config.commandStaleTimeoutMs = intValue(
+        object, "command_stale_timeout_ms", config.commandStaleTimeoutMs);
+    config.controlExitTimeoutMs = intValue(
+        object, "control_exit_timeout_ms", config.controlExitTimeoutMs);
+    config.controlEntryPrestreamMs = intValue(
+        object, "control_entry_prestream_ms", config.controlEntryPrestreamMs);
+    config.modeConfirmationTimeoutMs = intValue(
+        object, "mode_confirmation_timeout_ms", config.modeConfirmationTimeoutMs);
+    config.modeExitConfirmationTimeoutMs = intValue(
+        object, "mode_exit_confirmation_timeout_ms", config.modeExitConfirmationTimeoutMs);
+    config.normalizeControlTiming();
     const bool sitlMode = config.runMode == AppRunMode::Simulation;
     if (sitlMode && config.maxCommandDurationMs < AppConfig::SimulationDefaultMaxCommandDurationMs) {
         config.maxCommandDurationMs = AppConfig::SimulationDefaultMaxCommandDurationMs;
@@ -225,4 +242,23 @@ void AppConfig::applyRunModeDefaults(AppRunMode mode)
     maxCommandDurationMs = RealAircraftDefaultMaxCommandDurationMs;
     requireHighRiskConfirmation = true;
     mavlinkCommandExecutionEnabled = false;
+}
+
+void AppConfig::normalizeControlTiming()
+{
+    commandStaleTimeoutMs = qBound(
+        MinCommandStaleTimeoutMs, commandStaleTimeoutMs, MaxCommandStaleTimeoutMs);
+    controlExitTimeoutMs = qBound(
+        MinControlExitTimeoutMs, controlExitTimeoutMs, MaxControlExitTimeoutMs);
+    controlExitTimeoutMs = qMax(controlExitTimeoutMs, commandStaleTimeoutMs + 100);
+    controlEntryPrestreamMs = qBound(
+        MinControlEntryPrestreamMs, controlEntryPrestreamMs, MaxControlEntryPrestreamMs);
+    modeConfirmationTimeoutMs = qBound(
+        MinModeConfirmationTimeoutMs,
+        modeConfirmationTimeoutMs,
+        MaxModeConfirmationTimeoutMs);
+    modeExitConfirmationTimeoutMs = qBound(
+        MinModeConfirmationTimeoutMs,
+        modeExitConfirmationTimeoutMs,
+        MaxModeConfirmationTimeoutMs);
 }

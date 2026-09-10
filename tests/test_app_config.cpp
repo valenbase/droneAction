@@ -10,6 +10,8 @@ private slots:
     void oldSitlConfigEnablesCommandExecution();
     void realDefaultsDisableCommandExecution();
     void runModeRoundTripsJson();
+    void controlTimingRoundTripsJson();
+    void invalidControlTimingIsNormalized();
 };
 
 void AppConfigTests::simulationDefaultsEnableCommandExecution()
@@ -58,6 +60,40 @@ void AppConfigTests::runModeRoundTripsJson()
     const AppConfig parsed = AppConfig::fromJson(config.toJson());
     QCOMPARE(static_cast<int>(parsed.runMode), static_cast<int>(AppRunMode::Simulation));
     QCOMPARE(parsed.mavlinkUrl, config.mavlinkUrl);
+}
+
+void AppConfigTests::controlTimingRoundTripsJson()
+{
+    AppConfig config;
+    config.commandStaleTimeoutMs = 700;
+    config.controlExitTimeoutMs = 2600;
+    config.controlEntryPrestreamMs = 1500;
+    config.modeConfirmationTimeoutMs = 4200;
+    config.modeExitConfirmationTimeoutMs = 4600;
+
+    const AppConfig parsed = AppConfig::fromJson(config.toJson());
+    QCOMPARE(parsed.commandStaleTimeoutMs, 700);
+    QCOMPARE(parsed.controlExitTimeoutMs, 2600);
+    QCOMPARE(parsed.controlEntryPrestreamMs, 1500);
+    QCOMPARE(parsed.modeConfirmationTimeoutMs, 4200);
+    QCOMPARE(parsed.modeExitConfirmationTimeoutMs, 4600);
+}
+
+void AppConfigTests::invalidControlTimingIsNormalized()
+{
+    const AppConfig parsed = AppConfig::fromJson({
+        {QStringLiteral("command_stale_timeout_ms"), 50},
+        {QStringLiteral("control_exit_timeout_ms"), 100},
+        {QStringLiteral("control_entry_prestream_ms"), 200},
+        {QStringLiteral("mode_confirmation_timeout_ms"), 100},
+        {QStringLiteral("mode_exit_confirmation_timeout_ms"), 20000}
+    });
+
+    QCOMPARE(parsed.commandStaleTimeoutMs, AppConfig::MinCommandStaleTimeoutMs);
+    QCOMPARE(parsed.controlExitTimeoutMs, AppConfig::MinControlExitTimeoutMs);
+    QCOMPARE(parsed.controlEntryPrestreamMs, AppConfig::MinControlEntryPrestreamMs);
+    QCOMPARE(parsed.modeConfirmationTimeoutMs, AppConfig::MinModeConfirmationTimeoutMs);
+    QCOMPARE(parsed.modeExitConfirmationTimeoutMs, AppConfig::MaxModeConfirmationTimeoutMs);
 }
 
 QTEST_GUILESS_MAIN(AppConfigTests)

@@ -3,7 +3,11 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 
+#include <cmath>
+
 namespace {
+constexpr double MaxExactJsonInteger = 9007199254740991.0;
+
 QString normalized(QString value)
 {
     return value.trimmed().toLower();
@@ -26,6 +30,25 @@ ParseResult CommandParser::parseJsonDatagram(const QByteArray &payload)
     }
 
     command.requestId = object.value(QStringLiteral("request_id")).toString();
+    command.sessionId = object.value(QStringLiteral("session_id")).toString().trimmed();
+    const QJsonValue sequence = object.value(QStringLiteral("sequence"));
+    if (!sequence.isUndefined()) {
+        if (!sequence.isDouble()) {
+            return {false, QStringLiteral("sequence must be a positive integer"), command};
+        }
+        const double sequenceValue = sequence.toDouble();
+        if (!std::isfinite(sequenceValue)
+            || sequenceValue < 1.0
+            || sequenceValue > MaxExactJsonInteger
+            || std::floor(sequenceValue) != sequenceValue) {
+            return {false, QStringLiteral("sequence must be a positive integer"), command};
+        }
+        command.sequence = static_cast<quint64>(sequenceValue);
+        command.hasSequence = true;
+    }
+    if (command.sessionId.isEmpty() != !command.hasSequence) {
+        return {false, QStringLiteral("session_id and sequence must be provided together"), command};
+    }
     command.rawCommand = object.value(QStringLiteral("command")).toString();
     if (command.rawCommand.trimmed().isEmpty()) {
         return {false, QStringLiteral("missing command"), {}};

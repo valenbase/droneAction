@@ -21,6 +21,8 @@ public:
 
     void connectToEndpoint(const AppConfig &config);
     void disconnectFromEndpoint();
+    void setControlAuthorized(bool enabled);
+    bool externalControlActive() const;
     CommandExecutionResult executeCommand(const DroneCommand &command);
     TelemetrySnapshot snapshot() const;
     QString endpoint() const;
@@ -34,6 +36,7 @@ private slots:
 
 private:
     struct MavsdkRuntime;
+    CommandExecutionResult queuePx4MovementCommand(const DroneCommand &command);
     void startMavsdk(const AppConfig &config);
     void resetMavsdk();
     void applySnapshotUpdate(const std::function<void(TelemetrySnapshot *)> &update);
@@ -46,5 +49,6 @@ private:
     double m_homeLatitudeDeg = 29.56301;
     double m_homeLongitudeDeg = 106.55156;
     int m_tick = 0;
+    bool m_controlAuthorized = false;
     std::shared_ptr<MavsdkRuntime> m_mavsdk;
 };

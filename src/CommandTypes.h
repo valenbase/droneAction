@@ -26,6 +26,9 @@ enum class CommandKind {
 struct DroneCommand {
     int version = 1;
     QString requestId;
+    QString sessionId;
+    quint64 sequence = 0;
+    bool hasSequence = false;
     CommandKind kind = CommandKind::Unknown;
     QString rawCommand;
     double value = 0.0;

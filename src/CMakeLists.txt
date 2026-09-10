@@ -5,6 +5,8 @@ set(DRONEACTION_CORE_SOURCES
     AppConfig.h
     CommandTypes.cpp
     CommandTypes.h
+    ControlWatchdog.cpp
+    ControlWatchdog.h
     SafetyGate.cpp
     SafetyGate.h
     TelemetryService.cpp

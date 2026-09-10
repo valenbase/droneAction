@@ -24,8 +24,11 @@ from rk3588_command_cli import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     ParsedCommand,
+    ack_accepted,
     build_payload,
+    send_movement_stream,
     send_udp,
+    STREAM_COMMANDS,
 )
 
 
@@ -366,8 +369,11 @@ function commandPayload(button) {
   return payload;
 }
 
+let pendingRequests = 0;
 function setBusy(busy) {
-  document.querySelectorAll("button").forEach((button) => { button.disabled = busy; });
+  document.querySelectorAll("button").forEach((button) => {
+    button.disabled = busy && button.dataset.command !== "hold";
+  });
   statusEl.textContent = busy ? "Sending" : "Ready";
   statusEl.className = "status";
 }
@@ -387,6 +393,7 @@ async function sendCommand(button) {
     return;
   }
 
+  pendingRequests += 1;
   setBusy(true);
   try {
     const response = await fetch("/api/send", {
@@ -399,7 +406,10 @@ async function sendCommand(button) {
   } catch (error) {
     showResult({ request: payload, error: String(error) }, false);
   } finally {
-    document.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+    pendingRequests -= 1;
+    document.querySelectorAll("button").forEach((button) => {
+      button.disabled = pendingRequests > 0 && button.dataset.command !== "hold";
+    });
   }
 }
 
@@ -441,6 +451,17 @@ class PanelState:
         self.target_host = target_host
         self.target_port = target_port
         self.timeout = timeout
+        self.command_lock = threading.Lock()
+        self.stream_stop = threading.Event()
+
+    def send(self, payload: dict[str, Any], host: str, port: int, timeout: float) -> tuple:
+        self.stream_stop.set()
+        with self.command_lock:
+            if payload["command"].lower() in STREAM_COMMANDS:
+                self.stream_stop = threading.Event()
+                return send_movement_stream(payload, host, port, timeout, True,
+                                            stop_event=self.stream_stop)
+            return send_udp(payload, host, port, timeout, True), 0, None
 
 
 def make_handler(state: PanelState) -> type[BaseHTTPRequestHandler]:
@@ -513,8 +534,10 @@ def make_handler(state: PanelState) -> type[BaseHTTPRequestHandler]:
             )
             udp_payload = build_payload(parsed, None, None, None, None)
 
+            stream_packets = 0
+            hold_ack = None
             try:
-                ack = send_udp(udp_payload, host, port, timeout, True)
+                ack, stream_packets, hold_ack = state.send(udp_payload, host, port, timeout)
             except socket.timeout:
                 return {
                     "ok": False,
@@ -534,11 +557,13 @@ def make_handler(state: PanelState) -> type[BaseHTTPRequestHandler]:
                     "error": f"invalid ACK JSON: {exc}",
                 }
 
-            accepted = bool(ack and (ack.get("accepted") or ack.get("status") == "needs_confirmation"))
+            accepted = ack_accepted(ack) and (hold_ack is None or ack_accepted(hold_ack))
             return {
                 "ok": accepted,
                 "request": udp_payload,
                 "ack": ack,
+                "stream_packets": stream_packets,
+                "hold_ack": hold_ack,
             }
 
         def write_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:

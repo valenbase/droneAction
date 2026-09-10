@@ -1,6 +1,7 @@
 #include "TelemetryService.h"
 
 #include "ArduPilotControl.h"
+#include "ControlWatchdog.h"
 
 #include <QMetaObject>
 #include <QPointer>
@@ -13,6 +14,7 @@
 #include <mutex>
 #include <sstream>
 #include <thread>
+#include <utility>
 
 #ifdef DRONEACTION_WITH_MAVSDK
 #include <mavsdk/component_type.h>
@@ -61,6 +63,10 @@ QString publicDisplayText(QString message)
 }
 
 #ifdef DRONEACTION_WITH_MAVSDK
+// PX4 custom_mode stores the main mode in bits 16-23; POSCTL is main mode 3.
+constexpr std::uint32_t Px4PositionCustomMode = 3U << 16U;
+constexpr std::uint32_t Px4OffboardCustomMode = 6U << 16U;
+
 template <typename Result>
 QString resultToString(Result result)
 {
@@ -183,63 +189,6 @@ mavsdk::Offboard::VelocityBodyYawspeed velocitySetpoint(const DroneCommand &comm
     return setpoint;
 }
 
-struct OffboardConfirmationResult {
-    bool confirmed = false;
-    bool modeKnown = false;
-    mavsdk::Telemetry::FlightMode lastMode = mavsdk::Telemetry::FlightMode::Unknown;
-    bool setpointFailed = false;
-    mavsdk::Offboard::Result lastSetpointResult = mavsdk::Offboard::Result::Unknown;
-};
-
-OffboardConfirmationResult waitForOffboardConfirmation(mavsdk::Telemetry &telemetry,
-                                                       mavsdk::Offboard &offboard,
-                                                       const mavsdk::Offboard::VelocityBodyYawspeed &setpoint,
-                                                       std::chrono::milliseconds timeout)
-{
-    struct ModeWaitState {
-        std::mutex mutex;
-        std::condition_variable changed;
-        bool offboardFlightModeSeen = false;
-        bool modeUpdateSeen = false;
-        mavsdk::Telemetry::FlightMode lastMode = mavsdk::Telemetry::FlightMode::Unknown;
-    };
-    auto state = std::make_shared<ModeWaitState>();
-
-    const auto handle = telemetry.subscribe_flight_mode([state](mavsdk::Telemetry::FlightMode mode) {
-        std::lock_guard<std::mutex> lock(state->mutex);
-        state->modeUpdateSeen = true;
-        state->lastMode = mode;
-        state->offboardFlightModeSeen = mode == mavsdk::Telemetry::FlightMode::Offboard;
-        state->changed.notify_all();
-    });
-
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
-    OffboardConfirmationResult result;
-    while (std::chrono::steady_clock::now() < deadline) {
-        result.lastSetpointResult = offboard.set_velocity_body(setpoint);
-        if (result.lastSetpointResult != mavsdk::Offboard::Result::Success) {
-            result.setpointFailed = true;
-            break;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(state->mutex);
-            result.modeKnown = state->modeUpdateSeen;
-            result.lastMode = state->lastMode;
-            result.confirmed = state->offboardFlightModeSeen;
-        }
-        if (result.confirmed) {
-            break;
-        }
-
-        std::unique_lock<std::mutex> lock(state->mutex);
-        state->changed.wait_for(lock, std::chrono::milliseconds(100));
-    }
-
-    telemetry.unsubscribe_flight_mode(handle);
-    return result;
-}
-
 bool isMultirotor(mavsdk::Vehicle vehicle)
 {
     switch (vehicle) {
@@ -345,6 +294,14 @@ mavsdk::MavlinkPassthrough::Result sendBodyVelocity(
 
 struct TelemetryService::MavsdkRuntime {
 #ifdef DRONEACTION_WITH_MAVSDK
+    enum class ControlPhase {
+        Idle,
+        Entering,
+        Active,
+        ZeroVelocity,
+        Exiting
+    };
+
     mavsdk::Mavsdk mavsdk {groundStationConfiguration()};
     std::shared_ptr<mavsdk::System> system;
     std::shared_ptr<mavsdk::Telemetry> telemetry;
@@ -361,6 +318,19 @@ struct TelemetryService::MavsdkRuntime {
     std::atomic<std::uint64_t> commandGeneration {0};
     std::atomic_bool stopRequested {false};
     std::mutex mutex;
+
+    AppConfig config;
+    std::mutex controlMutex;
+    std::condition_variable controlChanged;
+    std::thread controlThread;
+    ControlPhase controlPhase = ControlPhase::Idle;
+    mavsdk::Offboard::VelocityBodyYawspeed controlTarget {};
+    std::chrono::steady_clock::time_point lastControlCommandAt {};
+    std::chrono::steady_clock::time_point controlTargetExpiresAt {};
+    bool hasControlTarget = false;
+    bool controlExitRequested = false;
+    bool controlAuthorized = false;
+    bool manualTakeoverLatched = false;
 #endif
 };
 
@@ -421,6 +391,417 @@ void TelemetryService::disconnectFromEndpoint()
     emit snapshotChanged(m_snapshot);
 }
 
+void TelemetryService::setControlAuthorized(bool enabled)
+{
+    m_controlAuthorized = enabled;
+#ifdef DRONEACTION_WITH_MAVSDK
+    auto runtime = m_mavsdk;
+    if (!runtime) {
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(runtime->controlMutex);
+        const bool wasAuthorized = runtime->controlAuthorized;
+        runtime->controlAuthorized = enabled;
+        if (!enabled) {
+            runtime->controlTarget = {};
+            runtime->hasControlTarget = false;
+            runtime->controlExitRequested = true;
+        } else if (!wasAuthorized) {
+            runtime->manualTakeoverLatched = false;
+            runtime->controlExitRequested = false;
+            runtime->hasControlTarget = false;
+        }
+    }
+    runtime->controlChanged.notify_all();
+#endif
+}
+
+bool TelemetryService::externalControlActive() const
+{
+#ifdef DRONEACTION_WITH_MAVSDK
+    auto runtime = m_mavsdk;
+    if (!runtime) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(runtime->controlMutex);
+    return runtime->controlPhase != MavsdkRuntime::ControlPhase::Idle;
+#else
+    return false;
+#endif
+}
+
+CommandExecutionResult TelemetryService::queuePx4MovementCommand(const DroneCommand &command)
+{
+#ifndef DRONEACTION_WITH_MAVSDK
+    Q_UNUSED(command)
+    return {QStringLiteral("unavailable"), QStringLiteral("command execution support is unavailable")};
+#else
+    auto runtime = m_mavsdk;
+    if (!runtime) {
+        return {QStringLiteral("not_ready"), QStringLiteral("Vehicle link is not initialized")};
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(runtime->controlMutex);
+        if (!runtime->controlAuthorized) {
+            return {QStringLiteral("disabled"), QStringLiteral("movement control authorization is disabled")};
+        }
+        if (runtime->manualTakeoverLatched) {
+            return {QStringLiteral("manual_takeover"),
+                    QStringLiteral("manual takeover is latched; disable and re-enable movement control")};
+        }
+        if (runtime->controlPhase == MavsdkRuntime::ControlPhase::Exiting
+            || (runtime->controlExitRequested
+                && runtime->controlPhase != MavsdkRuntime::ControlPhase::Idle)) {
+            return {QStringLiteral("busy"), QStringLiteral("external control is waiting for a safe mode exit")};
+        }
+
+        runtime->controlTarget = velocitySetpoint(command);
+        runtime->lastControlCommandAt = std::chrono::steady_clock::now();
+        runtime->controlTargetExpiresAt = runtime->lastControlCommandAt
+            + std::chrono::milliseconds(command.durationMs > 0 ? command.durationMs : 1000);
+        runtime->hasControlTarget = true;
+        runtime->controlExitRequested = false;
+        if (runtime->controlPhase == MavsdkRuntime::ControlPhase::Idle) {
+            runtime->controlPhase = MavsdkRuntime::ControlPhase::Entering;
+        }
+
+        if (!runtime->controlThread.joinable()) {
+            QPointer<TelemetryService> self(this);
+            runtime->controlThread = std::thread([self, runtime]() {
+                using Clock = std::chrono::steady_clock;
+                constexpr auto updateInterval = std::chrono::milliseconds(50);
+                const mavsdk::Offboard::VelocityBodyYawspeed zero {};
+
+                const auto report = [self](const QString &message) {
+                    if (!self) {
+                        return;
+                    }
+                    const QString displayMessage = publicDisplayText(message);
+                    QMetaObject::invokeMethod(self, [self, displayMessage]() {
+                        if (self) {
+                            emit self->statusMessageChanged(displayMessage);
+                        }
+                    }, Qt::QueuedConnection);
+                };
+
+                const auto finishSession = [runtime](bool latchManualTakeover) {
+                    {
+                        std::lock_guard<std::mutex> lock(runtime->controlMutex);
+                        runtime->controlTarget = {};
+                        runtime->hasControlTarget = false;
+                        runtime->controlExitRequested = false;
+                        runtime->controlPhase = MavsdkRuntime::ControlPhase::Idle;
+                        if (latchManualTakeover) {
+                            runtime->manualTakeoverLatched = true;
+                        }
+                    }
+                    runtime->controlChanged.notify_all();
+                };
+
+                const auto waitForUpdate = [runtime, updateInterval]() {
+                    std::unique_lock<std::mutex> lock(runtime->controlMutex);
+                    const auto deadline = Clock::now() + updateInterval;
+                    runtime->controlChanged.wait_until(lock, deadline, [runtime]() {
+                        return runtime->stopRequested.load();
+                    });
+                };
+
+                struct TargetState {
+                    mavsdk::Offboard::VelocityBodyYawspeed target {};
+                    ControlWatchdogStage watchdogStage = ControlWatchdogStage::ExitControl;
+                    bool stop = false;
+                    bool exitRequested = false;
+                };
+
+                const auto readTargetState = [runtime]() {
+                    TargetState state;
+                    const auto now = Clock::now();
+                    std::lock_guard<std::mutex> lock(runtime->controlMutex);
+                    state.stop = runtime->stopRequested.load();
+                    state.exitRequested = runtime->controlExitRequested || !runtime->controlAuthorized;
+                    state.target = runtime->controlTarget;
+                    if (!runtime->hasControlTarget) {
+                        state.watchdogStage = ControlWatchdogStage::ExitControl;
+                    } else {
+                        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            now - runtime->lastControlCommandAt);
+                        state.watchdogStage = ControlWatchdog::stageForElapsedMs(
+                            elapsed.count(), runtime->config);
+                        if (state.watchdogStage == ControlWatchdogStage::UseTarget
+                            && now >= runtime->controlTargetExpiresAt) {
+                            state.watchdogStage = ControlWatchdogStage::ZeroVelocity;
+                        }
+                    }
+                    return state;
+                };
+
+                const auto currentFlightMode = [runtime]() {
+                    std::lock_guard<std::mutex> lock(runtime->mutex);
+                    const bool known = runtime->flightModeKnown && runtime->system
+                        && runtime->system->is_connected()
+                        && runtime->flightMode != mavsdk::Telemetry::FlightMode::Unknown;
+                    return std::make_pair(known, runtime->flightMode);
+                };
+
+                while (!runtime->stopRequested.load()) {
+                    {
+                        std::unique_lock<std::mutex> lock(runtime->controlMutex);
+                        runtime->controlChanged.wait(lock, [runtime]() {
+                            return runtime->stopRequested.load()
+                                || (runtime->controlPhase != MavsdkRuntime::ControlPhase::Idle
+                                    && runtime->controlExitRequested)
+                                || (runtime->controlAuthorized && runtime->hasControlTarget
+                                    && !runtime->manualTakeoverLatched);
+                        });
+                        if (runtime->stopRequested.load()) {
+                            break;
+                        }
+                        runtime->controlPhase = MavsdkRuntime::ControlPhase::Entering;
+                    }
+
+                    std::shared_ptr<mavsdk::System> system;
+                    {
+                        std::lock_guard<std::mutex> lock(runtime->mutex);
+                        system = runtime->system;
+                    }
+                    if (!system || !system->is_connected()) {
+                        report(QStringLiteral("External control could not start because the aircraft is disconnected"));
+                        finishSession(false);
+                        continue;
+                    }
+
+                    auto offboard = std::make_unique<mavsdk::Offboard>(system);
+                    std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough;
+                    {
+                        std::lock_guard<std::mutex> lock(runtime->mutex);
+                        passthrough = runtime->passthrough;
+                    }
+
+                    const auto leaveControl = [&]() {
+                        {
+                            std::lock_guard<std::mutex> lock(runtime->controlMutex);
+                            runtime->controlPhase = MavsdkRuntime::ControlPhase::Exiting;
+                            runtime->controlTarget = {};
+                            runtime->hasControlTarget = false;
+                            runtime->controlExitRequested = true;
+                        }
+                        report(QStringLiteral("Command stream unavailable; requesting position control"));
+
+                        while (!runtime->stopRequested.load()) {
+                            offboard->set_velocity_body(zero);
+                            const auto [modeKnown, mode] = currentFlightMode();
+                            if (modeKnown && mode != mavsdk::Telemetry::FlightMode::Offboard) {
+                                const bool manualModeSelected = mode != mavsdk::Telemetry::FlightMode::Posctl;
+                                offboard.reset();
+                                finishSession(manualModeSelected);
+                                report(manualModeSelected
+                                           ? QStringLiteral("Flight mode changed to %1; manual takeover locked")
+                                                 .arg(flightModeToString(mode))
+                                           : QStringLiteral("External control exited; position control confirmed"));
+                                return true;
+                            }
+
+                            const auto modeResult = passthrough
+                                ? sendSetModeMessage(*passthrough, Px4PositionCustomMode)
+                                : mavsdk::MavlinkPassthrough::Result::CommandNoSystem;
+                            if (modeResult != mavsdk::MavlinkPassthrough::Result::Success) {
+                                report(QStringLiteral("Position control request was not sent: %1; continuing zero velocity")
+                                           .arg(resultToString(modeResult)));
+                            }
+
+                            const auto confirmationDeadline = Clock::now()
+                                + std::chrono::milliseconds(runtime->config.modeExitConfirmationTimeoutMs);
+                            while (!runtime->stopRequested.load() && Clock::now() < confirmationDeadline) {
+                                offboard->set_velocity_body(zero);
+                                const auto [confirmedKnown, confirmedMode] = currentFlightMode();
+                                if (confirmedKnown && confirmedMode != mavsdk::Telemetry::FlightMode::Offboard) {
+                                    const bool manualModeSelected = confirmedMode
+                                        != mavsdk::Telemetry::FlightMode::Posctl;
+                                    offboard.reset();
+                                    finishSession(manualModeSelected);
+                                    report(manualModeSelected
+                                               ? QStringLiteral("Flight mode changed to %1; manual takeover locked")
+                                                     .arg(flightModeToString(confirmedMode))
+                                               : QStringLiteral("External control exited; position control confirmed"));
+                                    return true;
+                                }
+                                waitForUpdate();
+                            }
+                            if (!runtime->stopRequested.load()) {
+                                report(QStringLiteral("Position control was not confirmed; continuing zero velocity and retrying"));
+                            }
+                        }
+                        return false;
+                    };
+
+                    const auto [initialModeKnown, initialMode] = currentFlightMode();
+                    const bool alreadyOffboard = initialModeKnown
+                        && initialMode == mavsdk::Telemetry::FlightMode::Offboard;
+                    report(QStringLiteral("Preparing continuous external control stream"));
+                    const auto prestreamDeadline = Clock::now()
+                        + std::chrono::milliseconds(alreadyOffboard ? 0 : runtime->config.controlEntryPrestreamMs);
+                    bool entryAborted = false;
+                    bool entryManualTakeover = false;
+                    while (!runtime->stopRequested.load() && Clock::now() < prestreamDeadline) {
+                        const auto [modeKnown, mode] = currentFlightMode();
+                        if (initialModeKnown && modeKnown && mode != initialMode
+                            && mode != mavsdk::Telemetry::FlightMode::Offboard) {
+                            entryManualTakeover = true;
+                            entryAborted = true;
+                            break;
+                        }
+                        const TargetState state = readTargetState();
+                        if (state.stop || !system->is_connected()
+                            || state.exitRequested
+                            || state.watchdogStage == ControlWatchdogStage::ExitControl) {
+                            entryAborted = true;
+                            break;
+                        }
+                        const auto &setpoint = state.watchdogStage == ControlWatchdogStage::UseTarget
+                            ? state.target
+                            : zero;
+                        const auto setResult = offboard->set_velocity_body(setpoint);
+                        if (setResult != mavsdk::Offboard::Result::Success) {
+                            report(QStringLiteral("Control stream preparation failed: %1")
+                                       .arg(resultToString(setResult)));
+                            entryAborted = true;
+                            break;
+                        }
+                        waitForUpdate();
+                    }
+                    if (runtime->stopRequested.load()) {
+                        break;
+                    }
+                    if (entryAborted) {
+                        offboard.reset();
+                        finishSession(entryManualTakeover);
+                        report(QStringLiteral("External control entry cancelled before mode request"));
+                        continue;
+                    }
+
+                    if (!alreadyOffboard) {
+                        report(QStringLiteral("Requesting external control mode"));
+                        // Queue one mode message so ACK retries cannot block the watchdog or undo takeover.
+                        const auto startResult = passthrough
+                            ? sendSetModeMessage(*passthrough, Px4OffboardCustomMode)
+                            : mavsdk::MavlinkPassthrough::Result::CommandNoSystem;
+                        if (startResult != mavsdk::MavlinkPassthrough::Result::Success) {
+                            report(QStringLiteral("Control mode request failed: %1").arg(resultToString(startResult)));
+                            leaveControl();
+                            continue;
+                        }
+                    }
+
+                    bool controlConfirmed = false;
+                    const auto entryConfirmationDeadline = Clock::now()
+                        + std::chrono::milliseconds(runtime->config.modeConfirmationTimeoutMs);
+                    while (!runtime->stopRequested.load() && Clock::now() < entryConfirmationDeadline) {
+                        const auto [modeKnown, mode] = currentFlightMode();
+                        if (modeKnown && mode == mavsdk::Telemetry::FlightMode::Offboard) {
+                            controlConfirmed = true;
+                            break;
+                        }
+                        if (initialModeKnown && modeKnown && mode != initialMode) {
+                            entryManualTakeover = true;
+                            break;
+                        }
+
+                        const TargetState state = readTargetState();
+                        if (!system->is_connected() || state.exitRequested
+                            || state.watchdogStage == ControlWatchdogStage::ExitControl) {
+                            break;
+                        }
+                        const auto &setpoint = state.watchdogStage == ControlWatchdogStage::UseTarget
+                            ? state.target
+                            : zero;
+                        const auto setResult = offboard->set_velocity_body(setpoint);
+                        if (setResult != mavsdk::Offboard::Result::Success) {
+                            report(QStringLiteral("Control stream failed while waiting for mode confirmation: %1")
+                                       .arg(resultToString(setResult)));
+                            break;
+                        }
+                        waitForUpdate();
+                    }
+
+                    if (!controlConfirmed) {
+                        report(QStringLiteral("External control mode was not confirmed"));
+                        if (entryManualTakeover) {
+                            offboard.reset();
+                            finishSession(true);
+                            report(QStringLiteral("Flight mode changed during entry; manual takeover locked"));
+                        } else {
+                            leaveControl();
+                        }
+                        continue;
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(runtime->controlMutex);
+                        runtime->controlPhase = MavsdkRuntime::ControlPhase::Active;
+                    }
+                    report(QStringLiteral("External control mode confirmed"));
+                    bool zeroVelocityReported = false;
+
+                    while (!runtime->stopRequested.load()) {
+                        const auto [modeKnown, mode] = currentFlightMode();
+                        if (modeKnown && mode != mavsdk::Telemetry::FlightMode::Offboard) {
+                            offboard.reset();
+                            finishSession(true);
+                            report(QStringLiteral("Flight mode changed to %1; manual takeover locked")
+                                       .arg(flightModeToString(mode)));
+                            break;
+                        }
+
+                        const TargetState state = readTargetState();
+                        if (!system->is_connected() || state.exitRequested
+                            || state.watchdogStage == ControlWatchdogStage::ExitControl) {
+                            leaveControl();
+                            break;
+                        }
+
+                        const bool useZero = state.watchdogStage == ControlWatchdogStage::ZeroVelocity;
+                        {
+                            std::lock_guard<std::mutex> lock(runtime->controlMutex);
+                            runtime->controlPhase = useZero
+                                ? MavsdkRuntime::ControlPhase::ZeroVelocity
+                                : MavsdkRuntime::ControlPhase::Active;
+                        }
+                        if (useZero && !zeroVelocityReported) {
+                            report(QStringLiteral("Command updates delayed; holding zero velocity"));
+                            zeroVelocityReported = true;
+                        } else if (!useZero && zeroVelocityReported) {
+                            report(QStringLiteral("Command updates restored"));
+                            zeroVelocityReported = false;
+                        }
+
+                        const auto setResult = offboard->set_velocity_body(useZero ? zero : state.target);
+                        if (setResult != mavsdk::Offboard::Result::Success) {
+                            report(QStringLiteral("Control stream update failed: %1")
+                                       .arg(resultToString(setResult)));
+                            leaveControl();
+                            break;
+                        }
+                        waitForUpdate();
+                    }
+                }
+
+                {
+                    std::lock_guard<std::mutex> lock(runtime->controlMutex);
+                    runtime->controlPhase = MavsdkRuntime::ControlPhase::Idle;
+                    runtime->hasControlTarget = false;
+                }
+                runtime->controlChanged.notify_all();
+            });
+        }
+    }
+    runtime->controlChanged.notify_all();
+    return {QStringLiteral("queued"), QStringLiteral("continuous control target updated")};
+#endif
+}
+
 CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &command)
 {
     if (!m_config.mavlinkCommandExecutionEnabled) {
@@ -442,8 +823,6 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
     std::shared_ptr<mavsdk::System> system;
     std::shared_ptr<mavsdk::Telemetry> telemetry;
     std::shared_ptr<mavsdk::MavlinkPassthrough> passthrough;
-    mavsdk::Telemetry::FlightMode currentFlightMode = mavsdk::Telemetry::FlightMode::Unknown;
-    bool flightModeKnown = false;
     mavsdk::Autopilot autopilot = mavsdk::Autopilot::Unknown;
     mavsdk::Vehicle vehicle = mavsdk::Vehicle::Unknown;
     {
@@ -451,8 +830,6 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
         system = runtime->system;
         telemetry = runtime->telemetry;
         passthrough = runtime->passthrough;
-        currentFlightMode = runtime->flightMode;
-        flightModeKnown = runtime->flightModeKnown;
         autopilot = runtime->autopilot;
         vehicle = runtime->vehicle;
     }
@@ -471,6 +848,36 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
         return {QStringLiteral("not_ready"), QStringLiteral("Aircraft state is not ready for control-mode confirmation")};
     }
 
+    if (autopilot != mavsdk::Autopilot::ArduPilot && CommandParser::isMovement(command.kind)) {
+        if (command.kind != CommandKind::Hold) {
+            return queuePx4MovementCommand(command);
+        }
+
+        bool exitRequested = false;
+        {
+            std::lock_guard<std::mutex> lock(runtime->controlMutex);
+            exitRequested = runtime->controlPhase != MavsdkRuntime::ControlPhase::Idle;
+            if (exitRequested) {
+                runtime->controlTarget = {};
+                runtime->hasControlTarget = false;
+                runtime->controlExitRequested = true;
+            }
+        }
+        if (exitRequested) {
+            runtime->controlChanged.notify_all();
+            return {QStringLiteral("queued"), QStringLiteral("safe external-control exit requested")};
+        }
+    }
+
+    if (autopilot != mavsdk::Autopilot::ArduPilot
+        && externalControlActive()
+        && (command.kind == CommandKind::Takeoff
+            || command.kind == CommandKind::Land
+            || command.kind == CommandKind::ReturnToLaunch)) {
+        return {QStringLiteral("busy"),
+                QStringLiteral("exit external control before requesting this action")};
+    }
+
     const std::uint64_t generation = runtime->commandGeneration.fetch_add(1) + 1;
     QPointer<TelemetryService> self(this);
     std::thread([self,
@@ -479,8 +886,6 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
                  telemetry,
                  passthrough,
                  command,
-                 currentFlightMode,
-                 flightModeKnown,
                  autopilot,
                  vehicle,
                  generation]() {
@@ -717,70 +1122,11 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             return;
         }
 
-        if (CommandParser::isMovement(command.kind)) {
-            mavsdk::Offboard offboard(system);
-            const auto setpoint = velocitySetpoint(command);
-            const mavsdk::Offboard::VelocityBodyYawspeed zero {};
-            const QString commandName = CommandParser::kindToString(command.kind);
-            const QString modeName = flightModeKnown ? flightModeToString(currentFlightMode) : QStringLiteral("Unknown");
-
-            if (flightModeKnown && currentFlightMode == mavsdk::Telemetry::FlightMode::Offboard) {
-                report(QStringLiteral("Aircraft already in guided control; sending %1 command").arg(commandName));
-            } else {
-                report(QStringLiteral("Aircraft mode is %1; preparing %2 command before control-mode request").arg(modeName, commandName));
-                for (int i = 0; i < 5; ++i) {
-                    const auto seedResult = offboard.set_velocity_body(setpoint);
-                    if (seedResult != mavsdk::Offboard::Result::Success) {
-                        report(QStringLiteral("Control stream failed before control-mode request: %1").arg(resultToString(seedResult)));
-                        return;
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                }
-
-                const auto startResult = offboard.start();
-                if (startResult != mavsdk::Offboard::Result::Success) {
-                    report(QStringLiteral("Aircraft rejected control-mode switch: %1").arg(resultToString(startResult)));
-                    return;
-                }
-                const OffboardConfirmationResult confirmation =
-                    waitForOffboardConfirmation(*telemetry, offboard, setpoint, std::chrono::milliseconds(2500));
-                if (!confirmation.confirmed) {
-                    offboard.set_velocity_body(zero);
-                    offboard.stop();
-                    if (confirmation.setpointFailed) {
-                        report(QStringLiteral("Control stream failed while waiting for control mode: %1")
-                                   .arg(resultToString(confirmation.lastSetpointResult)));
-                    } else {
-                        const QString lastMode = confirmation.modeKnown
-                            ? flightModeToString(confirmation.lastMode)
-                            : QStringLiteral("Unknown");
-                        report(QStringLiteral("Aircraft did not enter guided control; last mode %1, movement aborted").arg(lastMode));
-                    }
-                    return;
-                }
-                report(QStringLiteral("Guided control confirmed; executing %1").arg(commandName));
-            }
-
-            const auto deadline = std::chrono::steady_clock::now()
-                + std::chrono::milliseconds(command.durationMs > 0 ? command.durationMs : 1000);
-            while (std::chrono::steady_clock::now() < deadline) {
-                if (runtime->stopRequested || runtime->commandGeneration != generation) {
-                    break;
-                }
-                const auto setResult = offboard.set_velocity_body(setpoint);
-                if (setResult != mavsdk::Offboard::Result::Success) {
-                    report(QStringLiteral("Movement command update failed: %1").arg(resultToString(setResult)));
-                    break;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            }
-            offboard.set_velocity_body(zero);
-            if (command.kind == CommandKind::Hold) {
-                action.hold();
-            } else {
-                offboard.stop();
-            }
-            report(QStringLiteral("Command completed: %1").arg(commandName));
+        if (command.kind == CommandKind::Hold) {
+            const auto result = action.hold();
+            report(result == mavsdk::Action::Result::Success
+                       ? QStringLiteral("Position hold accepted")
+                       : QStringLiteral("Position hold rejected: %1").arg(resultToString(result)));
             return;
         }
 
@@ -839,6 +1185,8 @@ void TelemetryService::startMavsdk(const AppConfig &config)
     }
 
     m_mavsdk = std::make_shared<MavsdkRuntime>();
+    m_mavsdk->config = config;
+    m_mavsdk->controlAuthorized = m_controlAuthorized;
     const QString mavsdkUrl = normalizedMavsdkUrl(config.mavlinkUrl);
     const auto connectionResult = m_mavsdk->mavsdk.add_any_connection(mavsdkUrl.toStdString());
     if (connectionResult != mavsdk::ConnectionResult::Success) {
@@ -940,7 +1288,11 @@ void TelemetryService::startMavsdk(const AppConfig &config)
             }, Qt::QueuedConnection);
         });
 
-        system.value()->subscribe_is_connected([self](bool connected) {
+        system.value()->subscribe_is_connected([self, weakRuntime](bool connected) {
+            if (auto runtime = weakRuntime.lock()) {
+                runtime->stateChanged.notify_all();
+                runtime->controlChanged.notify_all();
+            }
             if (!self) {
                 return;
             }
@@ -969,10 +1321,14 @@ void TelemetryService::startMavsdk(const AppConfig &config)
         telemetry->subscribe_flight_mode([self, weakRuntime](mavsdk::Telemetry::FlightMode mode) {
             bool useRawMode = false;
             if (auto runtime = weakRuntime.lock()) {
-                std::lock_guard<std::mutex> lock(runtime->mutex);
-                runtime->flightMode = mode;
-                runtime->flightModeKnown = true;
-                useRawMode = runtime->autopilot == mavsdk::Autopilot::ArduPilot;
+                {
+                    std::lock_guard<std::mutex> lock(runtime->mutex);
+                    runtime->flightMode = mode;
+                    runtime->flightModeKnown = true;
+                    useRawMode = runtime->autopilot == mavsdk::Autopilot::ArduPilot;
+                }
+                runtime->stateChanged.notify_all();
+                runtime->controlChanged.notify_all();
             }
             if (!self || useRawMode) {
                 return;
@@ -1100,10 +1456,31 @@ void TelemetryService::startMavsdk(const AppConfig &config)
 void TelemetryService::resetMavsdk()
 {
 #ifdef DRONEACTION_WITH_MAVSDK
-    if (m_mavsdk) {
-        m_mavsdk->stopRequested = true;
-        ++m_mavsdk->commandGeneration;
-        m_mavsdk->stateChanged.notify_all();
+    auto runtime = m_mavsdk;
+    if (runtime) {
+        {
+            std::unique_lock<std::mutex> lock(runtime->controlMutex);
+            if (runtime->controlPhase != MavsdkRuntime::ControlPhase::Idle) {
+                runtime->controlTarget = {};
+                runtime->hasControlTarget = false;
+                runtime->controlExitRequested = true;
+                runtime->controlChanged.notify_all();
+                runtime->controlChanged.wait_for(
+                    lock,
+                    std::chrono::milliseconds(runtime->config.modeExitConfirmationTimeoutMs + 1000),
+                    [runtime]() {
+                        return runtime->controlPhase == MavsdkRuntime::ControlPhase::Idle;
+                    });
+            }
+        }
+
+        runtime->stopRequested = true;
+        ++runtime->commandGeneration;
+        runtime->stateChanged.notify_all();
+        runtime->controlChanged.notify_all();
+        if (runtime->controlThread.joinable()) {
+            runtime->controlThread.join();
+        }
     }
     m_mavsdk.reset();
 #endif

@@ -22,6 +22,7 @@ bool UdpCommandServer::start(const AppConfig &config, QString *errorMessage)
 {
     stop();
     m_config = config;
+    m_senderSequenceStates.clear();
     const QHostAddress bindAddress(config.udpBindAddress);
     if (!m_socket.bind(bindAddress, config.udpBindPort, QUdpSocket::ReuseAddressHint)) {
         if (errorMessage) {
@@ -76,6 +77,12 @@ void UdpCommandServer::confirmPendingCommand()
         {QStringLiteral("status"), QStringLiteral("rejected")},
         {QStringLiteral("reason"), QStringLiteral("operator confirmed but execution was not queued")}
     };
+    if (!pending.command.sessionId.isEmpty()) {
+        ack.insert(QStringLiteral("session_id"), pending.command.sessionId);
+    }
+    if (pending.command.hasSequence) {
+        ack.insert(QStringLiteral("sequence"), static_cast<double>(pending.command.sequence));
+    }
 
     const CommandExecutionResult execution = m_telemetryService->executeCommand(pending.command);
     const bool queued = execution.status == QStringLiteral("queued");
@@ -132,6 +139,28 @@ void UdpCommandServer::readPendingDatagrams()
             continue;
         }
 
+        QString orderingError;
+        if (!commandOrderAccepted(senderAddress, parse.command, &orderingError)) {
+            emit commandRejected(sender, orderingError);
+            sendAck(senderAddress, datagram.senderPort(), {
+                {QStringLiteral("version"), 1},
+                {QStringLiteral("request_id"), parse.command.requestId},
+                {QStringLiteral("session_id"), parse.command.sessionId},
+                {QStringLiteral("sequence"), static_cast<double>(parse.command.sequence)},
+                {QStringLiteral("command"), CommandParser::kindToString(parse.command.kind)},
+                {QStringLiteral("accepted"), false},
+                {QStringLiteral("status"), QStringLiteral("rejected")},
+                {QStringLiteral("reason"), orderingError}
+            });
+            continue;
+        }
+        if (m_pendingConfirmation.active
+            && parse.command.hasSequence
+            && parse.command.sessionId == m_pendingConfirmation.command.sessionId
+            && parse.command.sequence > m_pendingConfirmation.command.sequence) {
+            clearPendingConfirmation(QStringLiteral("superseded by a newer command"), true);
+        }
+
         const SafetyDecision decision = m_safetyGate->evaluate(parse.command, m_telemetryService->snapshot());
         emit commandObserved(sender, parse.command, decision);
         QJsonObject ack = decision.toAck();
@@ -139,6 +168,11 @@ void UdpCommandServer::readPendingDatagrams()
             const CommandExecutionResult execution = m_telemetryService->executeCommand(decision.command);
             ack.insert(QStringLiteral("execution_status"), execution.status);
             ack.insert(QStringLiteral("execution_reason"), execution.reason);
+            if (execution.status != QStringLiteral("queued")) {
+                ack.insert(QStringLiteral("accepted"), false);
+                ack.insert(QStringLiteral("status"), QStringLiteral("rejected"));
+                ack.insert(QStringLiteral("reason"), execution.reason);
+            }
             emit statusChanged(QStringLiteral("Command execution %1: %2").arg(execution.status, execution.reason));
         } else if (decision.code == SafetyDecisionCode::NeedsConfirmation) {
             clearPendingConfirmation(QStringLiteral("superseded by a newer confirmation request"), true);
@@ -163,6 +197,50 @@ bool UdpCommandServer::senderAllowed(const QHostAddress &sender) const
     return m_config.rk3588AllowedIps.contains(sender.toString());
 }
 
+bool UdpCommandServer::commandOrderAccepted(
+    const QHostAddress &sender, const DroneCommand &command, QString *reason)
+{
+    if (command.sessionId.isEmpty() || !command.hasSequence) {
+        return true;
+    }
+
+    SenderSequenceState &state = m_senderSequenceStates[sender.toString()];
+    if (state.activeSessionId.isEmpty()) {
+        state.activeSessionId = command.sessionId;
+        state.lastSequence = command.sequence;
+        return true;
+    }
+
+    if (command.sessionId == state.activeSessionId) {
+        if (command.sequence <= state.lastSequence) {
+            if (reason) {
+                *reason = QStringLiteral("duplicate or out-of-order command sequence");
+            }
+            return false;
+        }
+        state.lastSequence = command.sequence;
+        return true;
+    }
+
+    if (state.retiredSessionIds.contains(command.sessionId)) {
+        if (reason) {
+            *reason = QStringLiteral("command belongs to a retired control session");
+        }
+        return false;
+    }
+    if (command.sequence != 1) {
+        if (reason) {
+            *reason = QStringLiteral("a new control session must start with sequence 1");
+        }
+        return false;
+    }
+
+    state.retiredSessionIds.insert(state.activeSessionId);
+    state.activeSessionId = command.sessionId;
+    state.lastSequence = command.sequence;
+    return true;
+}
+
 void UdpCommandServer::sendAck(const QHostAddress &sender, quint16 port, const QJsonObject &ack)
 {
     const QByteArray payload = QJsonDocument(ack).toJson(QJsonDocument::Compact);
@@ -179,14 +257,21 @@ void UdpCommandServer::clearPendingConfirmation(const QString &reason, bool noti
     m_pendingConfirmation = {};
     m_confirmationTimer.stop();
     if (notifySender && m_socket.state() == QAbstractSocket::BoundState) {
-        sendAck(pending.senderAddress, pending.senderPort, {
+        QJsonObject ack {
             {QStringLiteral("version"), 1},
             {QStringLiteral("request_id"), pending.command.requestId},
             {QStringLiteral("command"), CommandParser::kindToString(pending.command.kind)},
             {QStringLiteral("accepted"), false},
             {QStringLiteral("status"), QStringLiteral("rejected")},
             {QStringLiteral("reason"), reason}
-        });
+        };
+        if (!pending.command.sessionId.isEmpty()) {
+            ack.insert(QStringLiteral("session_id"), pending.command.sessionId);
+        }
+        if (pending.command.hasSequence) {
+            ack.insert(QStringLiteral("sequence"), static_cast<double>(pending.command.sequence));
+        }
+        sendAck(pending.senderAddress, pending.senderPort, ack);
     }
     emit confirmationCleared();
     emit statusChanged(QStringLiteral("Pending command cleared: %1").arg(reason));

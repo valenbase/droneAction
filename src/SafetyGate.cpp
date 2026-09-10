@@ -46,6 +46,12 @@ QJsonObject SafetyDecision::toAck() const
         {QStringLiteral("status"), statusText()},
         {QStringLiteral("reason"), reason}
     };
+    if (!command.sessionId.isEmpty()) {
+        ack.insert(QStringLiteral("session_id"), command.sessionId);
+    }
+    if (command.hasSequence) {
+        ack.insert(QStringLiteral("sequence"), static_cast<double>(command.sequence));
+    }
     if (command.hasValue) {
         ack.insert(QStringLiteral("value"), command.value);
     }

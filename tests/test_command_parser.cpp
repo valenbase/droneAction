@@ -9,6 +9,9 @@ private slots:
     void parsesEnglishJson();
     void parsesChineseAlias();
     void rejectsUnknownCommand();
+    void parsesSessionSequence();
+    void rejectsIncompleteSessionSequence();
+    void rejectsOutOfRangeSequence();
 };
 
 void CommandParserTests::parsesEnglishJson()
@@ -36,6 +39,35 @@ void CommandParserTests::rejectsUnknownCommand()
     const ParseResult result = CommandParser::parseJsonDatagram(json);
     QVERIFY(!result.ok);
     QVERIFY(result.error.contains(QStringLiteral("unknown command")));
+}
+
+void CommandParserTests::parsesSessionSequence()
+{
+    const ParseResult result = CommandParser::parseJsonDatagram(
+        R"({"version":1,"session_id":"flight-1","sequence":42,"command":"forward"})");
+    QVERIFY2(result.ok, qPrintable(result.error));
+    QCOMPARE(result.command.sessionId, QStringLiteral("flight-1"));
+    QVERIFY(result.command.hasSequence);
+    QCOMPARE(result.command.sequence, quint64(42));
+}
+
+void CommandParserTests::rejectsIncompleteSessionSequence()
+{
+    const ParseResult missingSequence = CommandParser::parseJsonDatagram(
+        R"({"version":1,"session_id":"flight-1","command":"forward"})");
+    QVERIFY(!missingSequence.ok);
+
+    const ParseResult missingSession = CommandParser::parseJsonDatagram(
+        R"({"version":1,"sequence":1,"command":"forward"})");
+    QVERIFY(!missingSession.ok);
+}
+
+void CommandParserTests::rejectsOutOfRangeSequence()
+{
+    const ParseResult result = CommandParser::parseJsonDatagram(
+        R"({"version":1,"session_id":"flight-1","sequence":1e20,"command":"forward"})");
+    QVERIFY(!result.ok);
+    QVERIFY(result.error.contains(QStringLiteral("positive integer")));
 }
 
 QTEST_GUILESS_MAIN(CommandParserTests)
