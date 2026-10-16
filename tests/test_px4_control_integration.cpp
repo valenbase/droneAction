@@ -185,7 +185,7 @@ struct Fixture {
 class Px4ControlIntegrationTests : public QObject {
     Q_OBJECT
 private slots:
-    void continuousUpdatesAndTwoStageWatchdog() {
+    void commandGapHoversUntilAuthorizationDisabled() {
         Fixture f;
         QTRY_VERIFY_WITH_TIMEOUT(f.ready(), 6000);
         f.updates.start();
@@ -194,11 +194,21 @@ private slots:
         QTRY_VERIFY_WITH_TIMEOUT(!f.aircraft.targets.isEmpty() && f.aircraft.targets.last().forward < -0.9f, 1000);
         QCOMPARE(f.aircraft.entryRequests, 1);
         f.updates.stop();
-        const qint64 stoppedAt = f.aircraft.clock.elapsed();
         QTRY_VERIFY_WITH_TIMEOUT(f.aircraft.targets.last().isZero(), 450);
+        QTest::qWait(1200);
         QCOMPARE(f.aircraft.mode, OffboardMode);
-        QTRY_COMPARE_WITH_TIMEOUT(f.aircraft.mode, PositionMode, 1200);
-        QVERIFY(f.aircraft.lastExitRequestMs - stoppedAt >= 650);
+        QCOMPARE(f.aircraft.exitRequests, 0);
+        QVERIFY(f.telemetry.externalControlActive());
+        const auto beforeHold = f.aircraft.targets.size();
+        f.send(QStringLiteral("hold"));
+        QTest::qWait(400);
+        QCOMPARE(f.aircraft.mode, OffboardMode);
+        QCOMPARE(f.aircraft.exitRequests, 0);
+        QVERIFY(f.aircraft.targets.size() > beforeHold);
+        QVERIFY(f.aircraft.targets.last().isZero());
+
+        f.telemetry.setControlAuthorized(false);
+        QTRY_COMPARE_WITH_TIMEOUT(f.aircraft.mode, PositionMode, 1800);
         QTRY_VERIFY_WITH_TIMEOUT(!f.telemetry.externalControlActive(), 500);
         QTest::qWait(100);
         const auto count = f.aircraft.targets.size();
@@ -213,7 +223,7 @@ private slots:
         f.updates.start();
         QTRY_COMPARE_WITH_TIMEOUT(f.aircraft.mode, OffboardMode, 4000);
         f.updates.stop();
-        f.send(QStringLiteral("hold"));
+        f.telemetry.setControlAuthorized(false);
         QTRY_VERIFY_WITH_TIMEOUT(f.aircraft.exitRequests > 0, 800);
         const auto before = f.aircraft.targets.size();
         f.updates.start();

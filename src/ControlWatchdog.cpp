@@ -1,8 +1,10 @@
 #include "ControlWatchdog.h"
 
-ControlWatchdogStage ControlWatchdog::stageForElapsedMs(qint64 elapsedMs, const AppConfig &config)
+ControlWatchdogStage ControlWatchdog::stageForElapsedMs(qint64 elapsedMs,
+                                                         const AppConfig &config,
+                                                         bool exitWhenTimedOut)
 {
-    if (elapsedMs >= config.controlExitTimeoutMs) {
+    if (exitWhenTimedOut && elapsedMs >= config.controlExitTimeoutMs) {
         return ControlWatchdogStage::ExitControl;
     }
     if (elapsedMs >= config.commandStaleTimeoutMs) {

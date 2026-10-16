@@ -16,7 +16,7 @@ The first milestone provides:
 - Simulation defaults use `udp://:14540`; ArduCopter SITL can be selected in Settings with `tcp://127.0.0.1:5760`.
 - Command execution is enabled by default for simulation and disabled by default for a new real-aircraft profile.
 - ArduCopter movement uses a closed-loop Guided workflow: request mode, confirm mode from heartbeat, then stream body-frame velocity targets. Takeoff confirms Guided and motor arm before sending the takeoff target.
-- PX4 movement uses one persistent control session. Incoming UDP movement packets update the target without restarting the flight mode. A configurable two-stage watchdog first sends zero velocity and then exits to Position mode after a longer outage, while maintaining the zero stream until the mode is confirmed.
+- PX4 movement uses one persistent control session. Incoming UDP movement packets update the target without restarting the flight mode. When a command finishes or updates stop, the session stays in guided control and streams zero velocity. It leaves that mode when the operator disables movement authorization, or when the aircraft leaves the mode itself.
 - A safety gate for movement/high-risk commands.
 - GitHub Actions packaging for `x86_64` AppImage releases.
 

@@ -23,6 +23,10 @@ void ControlWatchdogTests::changesStageAtConfiguredBoundaries()
              static_cast<int>(ControlWatchdogStage::ZeroVelocity));
     QCOMPARE(static_cast<int>(ControlWatchdog::stageForElapsedMs(2000, config)),
              static_cast<int>(ControlWatchdogStage::ExitControl));
+    QCOMPARE(static_cast<int>(ControlWatchdog::stageForElapsedMs(2000, config, false)),
+             static_cast<int>(ControlWatchdogStage::ZeroVelocity));
+    QCOMPARE(static_cast<int>(ControlWatchdog::stageForElapsedMs(10000, config, false)),
+             static_cast<int>(ControlWatchdogStage::ZeroVelocity));
 }
 
 QTEST_GUILESS_MAIN(ControlWatchdogTests)

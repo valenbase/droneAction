@@ -70,6 +70,7 @@ int main(int argc, char *argv[])
     int positionSpeedSamples = 0;
     qint64 exitDelay = 0;
     bool zeroObserved = false;
+    bool releaseRequested = false;
     QObject::connect(&loop, &QTimer::timeout, [&]() {
         mavlink_manual_control_t manual {};
         manual.target = 10;
@@ -118,6 +119,10 @@ int main(int argc, char *argv[])
         case Stage::Watchdog:
             if (snapshot.mode == QStringLiteral("Guided control") && timer.elapsed() > 500
                 && snapshot.groundSpeedMps < 0.3) zeroObserved = true;
+            if (zeroObserved && !releaseRequested && timer.elapsed() > 1500) {
+                telemetry.setControlAuthorized(false);
+                releaseRequested = true;
+            }
             if (snapshot.mode == QStringLiteral("Position control") && !telemetry.externalControlActive()) {
                 exitDelay = timer.elapsed();
                 stage = Stage::Position;
@@ -139,7 +144,7 @@ int main(int argc, char *argv[])
         case Stage::Land:
             if (!snapshot.armed && snapshot.altitudeM < 0.4) {
                 const bool passed = maxSpeed > 0.5 && stoppedSpeed < 0.3 && zeroObserved
-                    && exitDelay >= 1800 && exitDelay < 4000;
+                    && releaseRequested && exitDelay >= 1400 && exitDelay < 5000;
                 qInfo() << "RESULT" << (passed ? "PASS" : "FAIL") << "max_speed" << maxSpeed
                         << "stopped_speed_rms" << stoppedSpeed << "exit_delay_ms" << exitDelay
                         << "zero_before_exit" << zeroObserved;

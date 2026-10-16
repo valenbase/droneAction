@@ -107,7 +107,8 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
         AppConfig::MaxControlExitTimeoutMs,
         controlTiming);
     m_controlExitTimeout->setToolTip(
-        QStringLiteral("Leave external control when the command stream remains unavailable."));
+        QStringLiteral("Cancel entry when guided control is not confirmed and commands stay quiet. "
+                       "After guided control is active, a quiet stream hovers at zero velocity."));
     m_controlEntryPrestream = makeMillisecondSpinBox(
         config.controlEntryPrestreamMs,
         AppConfig::MinControlEntryPrestreamMs,
@@ -124,7 +125,7 @@ SettingsDialog::SettingsDialog(const AppConfig &config, QWidget *parent)
         AppConfig::MaxModeConfirmationTimeoutMs,
         controlTiming);
     timingForm->addRow(QStringLiteral("No-update stop delay"), m_commandStaleTimeout);
-    timingForm->addRow(QStringLiteral("No-update mode exit"), m_controlExitTimeout);
+    timingForm->addRow(QStringLiteral("Entry abort delay"), m_controlExitTimeout);
     timingForm->addRow(QStringLiteral("Entry stream warm-up"), m_controlEntryPrestream);
     timingForm->addRow(QStringLiteral("Entry confirmation"), m_modeConfirmationTimeout);
     timingForm->addRow(QStringLiteral("Exit confirmation"), m_modeExitConfirmationTimeout);
@@ -213,7 +214,7 @@ bool SettingsDialog::applyToConfig(AppConfig *config, QString *errorMessage) con
     if (config->controlExitTimeoutMs <= config->commandStaleTimeoutMs) {
         if (errorMessage) {
             *errorMessage = QStringLiteral(
-                "No-update mode exit must be greater than the no-update stop delay.");
+                "Entry abort delay must be greater than the no-update stop delay.");
         }
         return false;
     }

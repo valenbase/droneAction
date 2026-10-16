@@ -362,7 +362,7 @@ Commands:
   降低 / down                 vertical down velocity
   左转 / yaw_left             yaw left rate
   右转 / yaw_right            yaw right rate
-  悬停 / hold                 zero movement
+  悬停 / hold                 zero velocity while remaining in external control
   起飞 / takeoff              high-risk action, normally needs UI confirmation
   降落 / land                 high-risk action, normally needs UI confirmation
   返航 / rtl                  high-risk action, normally needs UI confirmation

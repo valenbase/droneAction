@@ -271,7 +271,7 @@ python3 tools/rk3588_command_cli.py --host 192.168.0.12 --once "悬停"
 
 运动目标必须持续刷新。CLI和控制面板默认以 `10 Hz` 发送；真实控制系统也应采用固定发送线程，不能让图像或算法计算阻塞控制更新。
 
-设置窗口中的 `No-update stop delay` 决定断流多久后置零，`No-update mode exit` 决定多久后退出外部控制。`duration_ms` 是单个目标的最长有效期，PC 端仍会做安全限幅并在 ACK 中返回实际值。
+设置窗口中的 `No-update stop delay` 决定断流多久后改为零速度悬停。外部控制确认之后不会因为断流退出模式。`Entry abort delay` 只在模式尚未确认时放弃进入。`duration_ms` 是单个目标的最长有效期，到期后同样改为零速度并保持外部控制。PC 端仍会做安全限幅并在 ACK 中返回实际值。主动退出是关闭主界面的运动授权。
 
 ### 9.6 AppImage 不是最新
 

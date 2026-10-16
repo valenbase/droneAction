@@ -516,7 +516,7 @@ CommandExecutionResult TelemetryService::queuePx4MovementCommand(const DroneComm
                     bool exitRequested = false;
                 };
 
-                const auto readTargetState = [runtime]() {
+                const auto readTargetState = [runtime](bool remainInOffboard) {
                     TargetState state;
                     const auto now = Clock::now();
                     std::lock_guard<std::mutex> lock(runtime->controlMutex);
@@ -524,12 +524,14 @@ CommandExecutionResult TelemetryService::queuePx4MovementCommand(const DroneComm
                     state.exitRequested = runtime->controlExitRequested || !runtime->controlAuthorized;
                     state.target = runtime->controlTarget;
                     if (!runtime->hasControlTarget) {
-                        state.watchdogStage = ControlWatchdogStage::ExitControl;
+                        state.watchdogStage = remainInOffboard
+                            ? ControlWatchdogStage::ZeroVelocity
+                            : ControlWatchdogStage::ExitControl;
                     } else {
                         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                             now - runtime->lastControlCommandAt);
                         state.watchdogStage = ControlWatchdog::stageForElapsedMs(
-                            elapsed.count(), runtime->config);
+                            elapsed.count(), runtime->config, !remainInOffboard);
                         if (state.watchdogStage == ControlWatchdogStage::UseTarget
                             && now >= runtime->controlTargetExpiresAt) {
                             state.watchdogStage = ControlWatchdogStage::ZeroVelocity;
@@ -653,7 +655,7 @@ CommandExecutionResult TelemetryService::queuePx4MovementCommand(const DroneComm
                             entryAborted = true;
                             break;
                         }
-                        const TargetState state = readTargetState();
+                        const TargetState state = readTargetState(false);
                         if (state.stop || !system->is_connected()
                             || state.exitRequested
                             || state.watchdogStage == ControlWatchdogStage::ExitControl) {
@@ -709,7 +711,7 @@ CommandExecutionResult TelemetryService::queuePx4MovementCommand(const DroneComm
                             break;
                         }
 
-                        const TargetState state = readTargetState();
+                        const TargetState state = readTargetState(false);
                         if (!system->is_connected() || state.exitRequested
                             || state.watchdogStage == ControlWatchdogStage::ExitControl) {
                             break;
@@ -755,9 +757,8 @@ CommandExecutionResult TelemetryService::queuePx4MovementCommand(const DroneComm
                             break;
                         }
 
-                        const TargetState state = readTargetState();
-                        if (!system->is_connected() || state.exitRequested
-                            || state.watchdogStage == ControlWatchdogStage::ExitControl) {
+                        const TargetState state = readTargetState(true);
+                        if (!system->is_connected() || state.exitRequested) {
                             leaveControl();
                             break;
                         }
@@ -853,19 +854,33 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             return queuePx4MovementCommand(command);
         }
 
-        bool exitRequested = false;
+        bool hoverInSession = false;
         {
             std::lock_guard<std::mutex> lock(runtime->controlMutex);
-            exitRequested = runtime->controlPhase != MavsdkRuntime::ControlPhase::Idle;
-            if (exitRequested) {
+            if (runtime->manualTakeoverLatched) {
+                return {QStringLiteral("manual_takeover"),
+                        QStringLiteral("manual takeover is latched; disable and re-enable movement control")};
+            }
+            if (runtime->controlPhase == MavsdkRuntime::ControlPhase::Exiting
+                || (runtime->controlExitRequested
+                    && runtime->controlPhase != MavsdkRuntime::ControlPhase::Idle)) {
+                return {QStringLiteral("busy"), QStringLiteral("external control is waiting for a safe mode exit")};
+            }
+            if (runtime->controlPhase != MavsdkRuntime::ControlPhase::Idle) {
+                if (!runtime->controlAuthorized) {
+                    return {QStringLiteral("disabled"), QStringLiteral("movement control authorization is disabled")};
+                }
                 runtime->controlTarget = {};
-                runtime->hasControlTarget = false;
-                runtime->controlExitRequested = true;
+                runtime->lastControlCommandAt = std::chrono::steady_clock::now();
+                runtime->controlTargetExpiresAt = runtime->lastControlCommandAt
+                    + std::chrono::milliseconds(command.durationMs > 0 ? command.durationMs : 1000);
+                runtime->hasControlTarget = true;
+                hoverInSession = true;
             }
         }
-        if (exitRequested) {
+        if (hoverInSession) {
             runtime->controlChanged.notify_all();
-            return {QStringLiteral("queued"), QStringLiteral("safe external-control exit requested")};
+            return {QStringLiteral("queued"), QStringLiteral("holding zero velocity in external control")};
         }
     }
 
@@ -875,7 +890,7 @@ CommandExecutionResult TelemetryService::executeCommand(const DroneCommand &comm
             || command.kind == CommandKind::Land
             || command.kind == CommandKind::ReturnToLaunch)) {
         return {QStringLiteral("busy"),
-                QStringLiteral("exit external control before requesting this action")};
+                QStringLiteral("disable movement authorization before requesting this action")};
     }
 
     const std::uint64_t generation = runtime->commandGeneration.fetch_add(1) + 1;
